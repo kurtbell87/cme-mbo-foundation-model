@@ -1,10 +1,21 @@
 //! Parity test library — types and functions for comparing C++ reference
 //! features against the Rust pipeline output.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use arrow::array::{Array, BooleanArray, Float64Array};
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+use bars::{BarBuilder, TimeBarBuilder};
+use common::bar::Bar;
+use common::book::{BookSnapshot, BOOK_DEPTH, SNAPSHOT_INTERVAL_NS, TRADE_BUF_LEN};
+use common::time_utils;
+use dbn::decode::{DbnDecoder, DecodeRecord};
+use dbn::MboMsg;
+use features::BarFeatureComputer;
 
 /// The 20 model feature column names in canonical (XGBoost) order.
 pub const FEATURE_NAMES: [&str; 20] = [
@@ -71,6 +82,249 @@ pub struct ComparisonResult {
 }
 
 // ---------------------------------------------------------------------------
+// StreamingBook — order-book reconstruction from MBO messages
+// ---------------------------------------------------------------------------
+
+const F_LAST: u8 = 0x80;
+
+fn fixed_to_float(fixed: i64) -> f32 {
+    (fixed as f64 / 1e9) as f32
+}
+
+struct OrderEntry {
+    side: char,
+    price: i64,
+    size: u32,
+}
+
+struct StreamingBook {
+    orders: HashMap<u64, OrderEntry>,
+    bid_levels: BTreeMap<i64, u32>,
+    ask_levels: BTreeMap<i64, u32>,
+    trades: VecDeque<[f32; 3]>,
+    last_mid: f32,
+    last_spread: f32,
+    both_sides_seen: bool,
+}
+
+impl StreamingBook {
+    fn new() -> Self {
+        Self {
+            orders: HashMap::new(),
+            bid_levels: BTreeMap::new(),
+            ask_levels: BTreeMap::new(),
+            trades: VecDeque::new(),
+            last_mid: 0.0,
+            last_spread: 0.0,
+            both_sides_seen: false,
+        }
+    }
+
+    fn process(&mut self, msg: &MboMsg, target_id: u32) {
+        if msg.hd.instrument_id != target_id {
+            return;
+        }
+        let action = msg.action as u8 as char;
+        let side = msg.side as u8 as char;
+        let price = msg.price;
+        let size = msg.size;
+        let order_id = msg.order_id;
+
+        match action {
+            'A' => {
+                self.orders.insert(order_id, OrderEntry { side, price, size });
+                self.add_level(side, price, size);
+            }
+            'C' => {
+                if let Some(entry) = self.orders.remove(&order_id) {
+                    self.remove_level(entry.side, entry.price, entry.size);
+                }
+            }
+            'M' => {
+                if let Some(entry) = self.orders.remove(&order_id) {
+                    self.remove_level(entry.side, entry.price, entry.size);
+                }
+                self.orders.insert(order_id, OrderEntry { side, price, size });
+                self.add_level(side, price, size);
+            }
+            'T' => {
+                let agg = if side == 'B' { 1.0f32 } else { -1.0f32 };
+                self.trades
+                    .push_back([fixed_to_float(price), size as f32, agg]);
+                if self.trades.len() > TRADE_BUF_LEN {
+                    self.trades.pop_front();
+                }
+            }
+            'F' => {
+                if let Some(entry) = self.orders.remove(&order_id) {
+                    self.remove_level(entry.side, entry.price, entry.size);
+                    if size > 0 {
+                        self.orders.insert(
+                            order_id,
+                            OrderEntry { side: entry.side, price: entry.price, size },
+                        );
+                        self.add_level(entry.side, entry.price, size);
+                    }
+                }
+            }
+            'R' => {
+                self.orders.clear();
+                self.bid_levels.clear();
+                self.ask_levels.clear();
+            }
+            _ => {}
+        }
+    }
+
+    fn levels_for_side(&mut self, side: char) -> &mut BTreeMap<i64, u32> {
+        if side == 'B' {
+            &mut self.bid_levels
+        } else {
+            &mut self.ask_levels
+        }
+    }
+
+    fn add_level(&mut self, side: char, price: i64, size: u32) {
+        *self.levels_for_side(side).entry(price).or_insert(0) += size;
+    }
+
+    fn remove_level(&mut self, side: char, price: i64, size: u32) {
+        let levels = self.levels_for_side(side);
+        if let Some(lvl) = levels.get_mut(&price) {
+            if *lvl <= size {
+                levels.remove(&price);
+            } else {
+                *lvl -= size;
+            }
+        }
+    }
+
+    fn has_both_sides(&self) -> bool {
+        !self.bid_levels.is_empty() && !self.ask_levels.is_empty()
+    }
+
+    fn snapshot(&mut self, ts: u64) -> Option<BookSnapshot> {
+        if self.has_both_sides() {
+            self.both_sides_seen = true;
+        }
+        if !self.both_sides_seen {
+            return None;
+        }
+
+        let mut snap = BookSnapshot::default();
+        snap.timestamp = ts;
+
+        // Bids (descending)
+        for (i, (&price, &size)) in self.bid_levels.iter().rev().enumerate() {
+            if i >= BOOK_DEPTH {
+                break;
+            }
+            snap.bids[i] = [fixed_to_float(price), size as f32];
+        }
+
+        // Asks (ascending)
+        for (i, (&price, &size)) in self.ask_levels.iter().enumerate() {
+            if i >= BOOK_DEPTH {
+                break;
+            }
+            snap.asks[i] = [fixed_to_float(price), size as f32];
+        }
+
+        // Mid/spread
+        if self.has_both_sides() {
+            let best_bid = fixed_to_float(*self.bid_levels.keys().next_back().unwrap());
+            let best_ask = fixed_to_float(*self.ask_levels.keys().next().unwrap());
+            snap.mid_price = (best_bid + best_ask) / 2.0;
+            snap.spread = best_ask - best_bid;
+            self.last_mid = snap.mid_price;
+            self.last_spread = snap.spread;
+        } else {
+            snap.mid_price = self.last_mid;
+            snap.spread = self.last_spread;
+        }
+
+        // Trades
+        let count = self.trades.len();
+        let start = TRADE_BUF_LEN - count;
+        for (i, t) in self.trades.iter().enumerate() {
+            snap.trades[start + i] = *t;
+        }
+
+        snap.time_of_day = time_utils::compute_time_of_day(ts);
+        Some(snap)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// run_rust_pipeline_all_bars — streaming pipeline that returns ALL bars
+// ---------------------------------------------------------------------------
+
+/// Run the Rust pipeline and return ALL bars including warmup,
+/// with full Bar metadata (timestamps, snapshot_count, etc.).
+///
+/// Pipeline: dbn.zst → streaming book → 100ms snapshots → 5s time bars.
+pub fn run_rust_pipeline_all_bars(dbn_path: &Path, instrument_id: u32) -> Result<Vec<Bar>> {
+    let mut decoder = DbnDecoder::from_zstd_file(dbn_path)
+        .map_err(|e| anyhow::anyhow!("Failed to open DBN file: {}", e))?;
+
+    let mut book = StreamingBook::new();
+    let mut first_ts: Option<u64> = None;
+    let mut rth_close: u64 = 0;
+    let mut next_snap_ts: u64 = 0;
+    let mut bar_builder = TimeBarBuilder::new(5);
+    let mut bar_list = Vec::new();
+
+    while let Some(msg) = decoder
+        .decode_record::<MboMsg>()
+        .map_err(|e| anyhow::anyhow!("DBN decode error: {}", e))?
+    {
+        let ts = msg.hd.ts_event;
+        let id = msg.hd.instrument_id;
+
+        if first_ts.is_none() && id == instrument_id {
+            first_ts = Some(ts);
+            rth_close = time_utils::rth_close_ns(ts);
+            next_snap_ts = time_utils::rth_open_ns(ts);
+        }
+
+        book.process(msg, instrument_id);
+
+        let flags = msg.flags.raw();
+        if flags & F_LAST != 0 && id == instrument_id {
+            while next_snap_ts < rth_close && next_snap_ts <= ts {
+                if let Some(snap) = book.snapshot(next_snap_ts) {
+                    if let Some(bar) = bar_builder.on_snapshot(&snap) {
+                        bar_list.push(bar);
+                    }
+                }
+                next_snap_ts += SNAPSHOT_INTERVAL_NS;
+            }
+        }
+    }
+
+    if first_ts.is_none() {
+        bail!("No records found for instrument {}", instrument_id);
+    }
+
+    // Emit remaining snapshots up to RTH close
+    while next_snap_ts < rth_close {
+        if let Some(snap) = book.snapshot(next_snap_ts) {
+            if let Some(bar) = bar_builder.on_snapshot(&snap) {
+                bar_list.push(bar);
+            }
+        }
+        next_snap_ts += SNAPSHOT_INTERVAL_NS;
+    }
+
+    // Flush any partial bar
+    if let Some(bar) = bar_builder.flush() {
+        bar_list.push(bar);
+    }
+
+    Ok(bar_list)
+}
+
+// ---------------------------------------------------------------------------
 // load_reference_parquet
 // ---------------------------------------------------------------------------
 
@@ -79,10 +333,6 @@ pub struct ComparisonResult {
 /// Skips warmup bars (is_warmup == true or first 50 bars).
 /// Returns one `[f64; 20]` per non-warmup bar.
 pub fn load_reference_parquet(path: &Path) -> Result<Vec<[f64; 20]>> {
-    use arrow::array::{Array, BooleanArray, Float64Array};
-    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-    use std::fs::File;
-
     let file = File::open(path)
         .with_context(|| format!("Failed to open reference Parquet file: {}", path.display()))?;
 
@@ -150,224 +400,7 @@ pub fn load_reference_parquet(path: &Path) -> Result<Vec<[f64; 20]>> {
 ///
 /// Uses a streaming approach to avoid storing all committed states in memory.
 pub fn run_rust_pipeline(dbn_path: &Path, instrument_id: u32) -> Result<Vec<[f64; 20]>> {
-    use bars::{BarBuilder, TimeBarBuilder};
-    use common::book::{BookSnapshot, BOOK_DEPTH, SNAPSHOT_INTERVAL_NS, TRADE_BUF_LEN};
-    use common::time_utils;
-    use dbn::decode::{DbnDecoder, DecodeRecord};
-    use dbn::MboMsg;
-    use features::BarFeatureComputer;
-    use std::collections::{BTreeMap, VecDeque};
-
-    const F_LAST: u8 = 0x80;
-
-    fn fixed_to_float(fixed: i64) -> f32 {
-        (fixed as f64 / 1e9) as f32
-    }
-
-    // --- Streaming book state ---
-    struct StreamingBook {
-        orders: HashMap<u64, (char, i64, u32)>, // (side, price, size)
-        bid_levels: BTreeMap<i64, u32>,
-        ask_levels: BTreeMap<i64, u32>,
-        trades: VecDeque<[f32; 3]>,
-        last_mid: f32,
-        last_spread: f32,
-        both_sides_seen: bool,
-    }
-
-    impl StreamingBook {
-        fn new() -> Self {
-            Self {
-                orders: HashMap::new(),
-                bid_levels: BTreeMap::new(),
-                ask_levels: BTreeMap::new(),
-                trades: VecDeque::new(),
-                last_mid: 0.0,
-                last_spread: 0.0,
-                both_sides_seen: false,
-            }
-        }
-
-        fn process(&mut self, msg: &MboMsg, target_id: u32) {
-            if msg.hd.instrument_id != target_id {
-                return;
-            }
-            let action = msg.action as u8 as char;
-            let side = msg.side as u8 as char;
-            let price = msg.price;
-            let size = msg.size;
-            let order_id = msg.order_id;
-
-            match action {
-                'A' => {
-                    self.orders.insert(order_id, (side, price, size));
-                    self.add_level(side, price, size);
-                }
-                'C' => {
-                    if let Some((s, p, sz)) = self.orders.remove(&order_id) {
-                        self.remove_level(s, p, sz);
-                    }
-                }
-                'M' => {
-                    if let Some((s, p, sz)) = self.orders.remove(&order_id) {
-                        self.remove_level(s, p, sz);
-                    }
-                    self.orders.insert(order_id, (side, price, size));
-                    self.add_level(side, price, size);
-                }
-                'T' => {
-                    let agg = if side == 'B' { 1.0f32 } else { -1.0f32 };
-                    self.trades.push_back([fixed_to_float(price), size as f32, agg]);
-                    if self.trades.len() > TRADE_BUF_LEN {
-                        self.trades.pop_front();
-                    }
-                }
-                'F' => {
-                    if let Some((s, p, _sz)) = self.orders.remove(&order_id) {
-                        self.remove_level(s, p, _sz);
-                        if size > 0 {
-                            self.orders.insert(order_id, (s, p, size));
-                            self.add_level(s, p, size);
-                        }
-                    }
-                }
-                'R' => {
-                    self.orders.clear();
-                    self.bid_levels.clear();
-                    self.ask_levels.clear();
-                }
-                _ => {}
-            }
-        }
-
-        fn add_level(&mut self, side: char, price: i64, size: u32) {
-            let levels = if side == 'B' { &mut self.bid_levels } else { &mut self.ask_levels };
-            *levels.entry(price).or_insert(0) += size;
-        }
-
-        fn remove_level(&mut self, side: char, price: i64, size: u32) {
-            let levels = if side == 'B' { &mut self.bid_levels } else { &mut self.ask_levels };
-            if let Some(lvl) = levels.get_mut(&price) {
-                if *lvl <= size {
-                    levels.remove(&price);
-                } else {
-                    *lvl -= size;
-                }
-            }
-        }
-
-        fn has_both_sides(&self) -> bool {
-            !self.bid_levels.is_empty() && !self.ask_levels.is_empty()
-        }
-
-        fn snapshot(&mut self, ts: u64) -> Option<BookSnapshot> {
-            if self.has_both_sides() {
-                self.both_sides_seen = true;
-            }
-            if !self.both_sides_seen {
-                return None;
-            }
-
-            let mut snap = BookSnapshot::default();
-            snap.timestamp = ts;
-
-            // Bids (descending)
-            for (i, (&price, &size)) in self.bid_levels.iter().rev().enumerate() {
-                if i >= BOOK_DEPTH { break; }
-                snap.bids[i] = [fixed_to_float(price), size as f32];
-            }
-
-            // Asks (ascending)
-            for (i, (&price, &size)) in self.ask_levels.iter().enumerate() {
-                if i >= BOOK_DEPTH { break; }
-                snap.asks[i] = [fixed_to_float(price), size as f32];
-            }
-
-            // Mid/spread
-            if self.has_both_sides() {
-                let best_bid = fixed_to_float(*self.bid_levels.keys().next_back().unwrap());
-                let best_ask = fixed_to_float(*self.ask_levels.keys().next().unwrap());
-                snap.mid_price = (best_bid + best_ask) / 2.0;
-                snap.spread = best_ask - best_bid;
-                self.last_mid = snap.mid_price;
-                self.last_spread = snap.spread;
-            } else {
-                snap.mid_price = self.last_mid;
-                snap.spread = self.last_spread;
-            }
-
-            // Trades
-            let count = self.trades.len();
-            let start = TRADE_BUF_LEN - count;
-            for (i, t) in self.trades.iter().enumerate() {
-                snap.trades[start + i] = *t;
-            }
-
-            snap.time_of_day = time_utils::compute_time_of_day(ts);
-            Some(snap)
-        }
-    }
-
-    // --- Stream through DBN file ---
-    let mut decoder = DbnDecoder::from_zstd_file(dbn_path)
-        .map_err(|e| anyhow::anyhow!("Failed to open DBN file: {}", e))?;
-
-    let mut book = StreamingBook::new();
-    let mut first_ts: Option<u64> = None;
-    let mut rth_close: u64 = 0;
-    let mut next_snap_ts: u64 = 0;
-    let mut bar_builder = TimeBarBuilder::new(5);
-    let mut bar_list = Vec::new();
-
-    while let Some(msg) = decoder
-        .decode_record::<MboMsg>()
-        .map_err(|e| anyhow::anyhow!("DBN decode error: {}", e))?
-    {
-        let ts = msg.hd.ts_event;
-        let id = msg.hd.instrument_id;
-
-        // Initialize RTH boundaries from first event
-        if first_ts.is_none() && id == instrument_id {
-            first_ts = Some(ts);
-            rth_close = time_utils::rth_close_ns(ts);
-            // Align to first 100ms boundary at or after RTH open
-            next_snap_ts = time_utils::rth_open_ns(ts);
-        }
-
-        book.process(msg, instrument_id);
-
-        let flags = msg.flags.raw();
-        if flags & F_LAST != 0 && id == instrument_id {
-            // After each commit, emit any pending 100ms snapshots
-            while next_snap_ts < rth_close && next_snap_ts <= ts {
-                if let Some(snap) = book.snapshot(next_snap_ts) {
-                    if let Some(bar) = bar_builder.on_snapshot(&snap) {
-                        bar_list.push(bar);
-                    }
-                }
-                next_snap_ts += SNAPSHOT_INTERVAL_NS;
-            }
-        }
-    }
-
-    if first_ts.is_none() {
-        bail!("No records found for instrument {}", instrument_id);
-    }
-
-    // Emit remaining snapshots up to RTH close
-    while next_snap_ts < rth_close {
-        if let Some(snap) = book.snapshot(next_snap_ts) {
-            if let Some(bar) = bar_builder.on_snapshot(&snap) {
-                bar_list.push(bar);
-            }
-        }
-        next_snap_ts += SNAPSHOT_INTERVAL_NS;
-    }
-
-    // Flush any partial bar
-    if let Some(bar) = bar_builder.flush() {
-        bar_list.push(bar);
-    }
+    let bar_list = run_rust_pipeline_all_bars(dbn_path, instrument_id)?;
 
     // Compute features (batch mode with fixup)
     let mut computer = BarFeatureComputer::new();

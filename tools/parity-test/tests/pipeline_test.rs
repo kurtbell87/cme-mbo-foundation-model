@@ -1,15 +1,6 @@
-//! Parity Test Pipeline Wiring — RED Phase Test Suite
+//! Parity Test Pipeline Wiring
 //!
 //! Spec: .kit/docs/parity-test-pipeline.md
-//!
-//! These tests MUST FAIL (RED) because the `parity_test` crate has no lib target
-//! and the pipeline functions don't exist yet.
-//!
-//! The GREEN phase must:
-//!   1. Create `tools/parity-test/src/lib.rs` exposing the types and functions below
-//!   2. Add deps to Cargo.toml: parquet, arrow, features, bars, book-builder,
-//!      databento-ingest, common, dbn, anyhow
-//!   3. Implement all functions to make these tests pass
 //!
 //! ## Test Plan Coverage
 //!
@@ -55,15 +46,11 @@
 //! ) -> ComparisonResult;
 //! ```
 
-// ---------------------------------------------------------------------------
-// These imports will fail to compile (RED) — parity_test has no lib.rs yet.
-// ---------------------------------------------------------------------------
 use parity_test::{
-    compare_features, load_reference_parquet, match_day_files, run_rust_pipeline,
-    ComparisonResult, DayPair, FeatureDeviation, FEATURE_NAMES,
+    compare_features, load_reference_parquet, match_day_files, run_rust_pipeline, FEATURE_NAMES,
 };
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 // =====================================================================
 // Section 0: Feature Name Constant Contract
