@@ -63,6 +63,7 @@ struct GbtreeModel {
 #[derive(Deserialize)]
 struct LearnerModelParam {
     base_score: String,
+    #[allow(dead_code)]
     num_feature: String,
 }
 

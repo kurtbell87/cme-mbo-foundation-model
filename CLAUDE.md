@@ -109,9 +109,10 @@ After every session that changes the codebase, update:
 3. **`.kit/CONSTRUCTION_LOG.md`** — Progress notes (Math).
 4. **This file's "Current State" section** — Keep it current.
 
-## Current State (updated YYYY-MM-DD)
+## Current State (updated 2026-02-28)
 
-- **Build:** _update after first TDD cycle_
-- **Experiments completed:** _0_
-- **Constructions completed:** _0_
-- **Next task:** _Pick a kit and start your first cycle._
+- **Build:** GREEN — compiles clean, 2 warnings (unused imports in pipeline_test.rs)
+- **Tests:** 255 passed, 0 failed, 3 ignored (workspace-wide via `cargo test --workspace`)
+- **Branch:** `feat/migration-phase0-2`
+- **Phases completed:** 0 (Parity harness), 0b (Pipeline wiring), 1 (XGBoost FFI), 2 (Rithmic protobuf)
+- **Next task:** Run parity test against real C++ reference Parquet data (251-day validation gate). Then Phase 3 (Rithmic WebSocket Client).

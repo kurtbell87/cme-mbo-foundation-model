@@ -25,7 +25,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use xgboost_ffi::{GbtModel, PredictionDetail, TwoStageModel};
+use xgboost_ffi::{GbtModel, TwoStageModel};
 
 // ---------------------------------------------------------------------------
 // Helpers

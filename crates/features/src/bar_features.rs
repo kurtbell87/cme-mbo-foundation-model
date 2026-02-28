@@ -662,9 +662,7 @@ impl BarFeatureComputer {
             row.order_flow_toxicity = 0.0;
         }
 
-        row.cancel_concentration = (bar.cancel_count as f32
-            / (bar.cancel_count as f32 + bar.add_count as f32 + bar.modify_count as f32 + EPS))
-            .min(1.0);
+        row.cancel_concentration = (bar.cancel_count as f32 / (total_msgs + EPS)).min(1.0);
     }
 
     // === Helpers ===
