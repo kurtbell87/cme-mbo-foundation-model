@@ -8,3 +8,6 @@ common = { workspace = true }
 book-builder = { workspace = true }
 dbn = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

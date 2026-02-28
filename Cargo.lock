@@ -626,6 +626,7 @@ dependencies = [
  "book-builder",
  "common",
  "dbn",
+ "tempfile",
  "thiserror",
 ]
 
