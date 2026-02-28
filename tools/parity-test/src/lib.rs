@@ -105,6 +105,10 @@ struct StreamingBook {
     last_mid: f32,
     last_spread: f32,
     both_sides_seen: bool,
+    pending_add: u32,
+    pending_cancel: u32,
+    pending_modify: u32,
+    pending_trade: u32,
 }
 
 impl StreamingBook {
@@ -117,6 +121,10 @@ impl StreamingBook {
             last_mid: 0.0,
             last_spread: 0.0,
             both_sides_seen: false,
+            pending_add: 0,
+            pending_cancel: 0,
+            pending_modify: 0,
+            pending_trade: 0,
         }
     }
 
@@ -134,11 +142,13 @@ impl StreamingBook {
             'A' => {
                 self.orders.insert(order_id, OrderEntry { side, price, size });
                 self.add_level(side, price, size);
+                self.pending_add += 1;
             }
             'C' => {
                 if let Some(entry) = self.orders.remove(&order_id) {
                     self.remove_level(entry.side, entry.price, entry.size);
                 }
+                self.pending_cancel += 1;
             }
             'M' => {
                 if let Some(entry) = self.orders.remove(&order_id) {
@@ -146,6 +156,7 @@ impl StreamingBook {
                 }
                 self.orders.insert(order_id, OrderEntry { side, price, size });
                 self.add_level(side, price, size);
+                self.pending_modify += 1;
             }
             'T' => {
                 let agg = if side == 'B' { 1.0f32 } else { -1.0f32 };
@@ -154,6 +165,7 @@ impl StreamingBook {
                 if self.trades.len() > TRADE_BUF_LEN {
                     self.trades.pop_front();
                 }
+                self.pending_trade += 1;
             }
             'F' => {
                 if let Some(entry) = self.orders.remove(&order_id) {
@@ -201,6 +213,16 @@ impl StreamingBook {
 
     fn has_both_sides(&self) -> bool {
         !self.bid_levels.is_empty() && !self.ask_levels.is_empty()
+    }
+
+    fn current_mid(&self) -> f32 {
+        if self.has_both_sides() {
+            let best_bid = fixed_to_float(*self.bid_levels.keys().next_back().unwrap());
+            let best_ask = fixed_to_float(*self.ask_levels.keys().next().unwrap());
+            (best_bid + best_ask) / 2.0
+        } else {
+            self.last_mid
+        }
     }
 
     fn snapshot(&mut self, ts: u64) -> Option<BookSnapshot> {
@@ -251,6 +273,17 @@ impl StreamingBook {
         }
 
         snap.time_of_day = time_utils::compute_time_of_day(ts);
+
+        // MBO event counts since last snapshot
+        snap.add_count = self.pending_add;
+        snap.cancel_count = self.pending_cancel;
+        snap.modify_count = self.pending_modify;
+        snap.trade_count = self.pending_trade;
+        self.pending_add = 0;
+        self.pending_cancel = 0;
+        self.pending_modify = 0;
+        self.pending_trade = 0;
+
         Some(snap)
     }
 }
@@ -262,7 +295,8 @@ impl StreamingBook {
 /// Run the Rust pipeline and return ALL bars including warmup,
 /// with full Bar metadata (timestamps, snapshot_count, etc.).
 ///
-/// Pipeline: dbn.zst → streaming book → 100ms snapshots → 5s time bars.
+/// Pipeline: dbn.zst → streaming book → 100ms snapshots
+///           → 5s time bars → ceiling-based event attribution.
 pub fn run_rust_pipeline_all_bars(dbn_path: &Path, instrument_id: u32) -> Result<Vec<Bar>> {
     let mut decoder = DbnDecoder::from_zstd_file(dbn_path)
         .map_err(|e| anyhow::anyhow!("Failed to open DBN file: {}", e))?;
@@ -271,8 +305,14 @@ pub fn run_rust_pipeline_all_bars(dbn_path: &Path, instrument_id: u32) -> Result
     let mut first_ts: Option<u64> = None;
     let mut rth_close: u64 = 0;
     let mut next_snap_ts: u64 = 0;
+    let mut counting_started = false;
+    let mut rth_open_ns: u64 = 0;
     let mut bar_builder = TimeBarBuilder::new(5);
     let mut bar_list = Vec::new();
+    let snaps_per_bar: u64 = 50;
+
+    // Per-bar event counts using ceiling-based snapshot attribution.
+    let mut bar_event_counts: Vec<[u32; 4]> = Vec::new(); // [add, cancel, modify, trade]
 
     while let Some(msg) = decoder
         .decode_record::<MboMsg>()
@@ -283,11 +323,46 @@ pub fn run_rust_pipeline_all_bars(dbn_path: &Path, instrument_id: u32) -> Result
 
         if first_ts.is_none() && id == instrument_id {
             first_ts = Some(ts);
+            let mut rth_open = time_utils::rth_open_ns(ts);
             rth_close = time_utils::rth_close_ns(ts);
-            next_snap_ts = time_utils::rth_open_ns(ts);
+            if ts >= rth_open {
+                let next_midnight =
+                    time_utils::midnight_et_ns(ts) + time_utils::NS_PER_DAY;
+                rth_open = time_utils::rth_open_ns(next_midnight);
+                rth_close = time_utils::rth_close_ns(next_midnight);
+            }
+            rth_open_ns = rth_open;
+            next_snap_ts = rth_open;
+        }
+
+        // Clear pre-RTH event counts before processing the first RTH event
+        if !counting_started && rth_open_ns > 0 && ts >= rth_open_ns && id == instrument_id {
+            book.pending_add = 0;
+            book.pending_cancel = 0;
+            book.pending_modify = 0;
+            book.pending_trade = 0;
+            counting_started = true;
         }
 
         book.process(msg, instrument_id);
+
+        // Ceiling-based per-bar event attribution
+        if id == instrument_id && rth_open_ns > 0 && ts >= rth_open_ns && ts < rth_close {
+            let t_rel = ts - rth_open_ns;
+            let snap_idx = (t_rel + SNAPSHOT_INTERVAL_NS - 1) / SNAPSHOT_INTERVAL_NS;
+            let bar_idx = (snap_idx / snaps_per_bar) as usize;
+            if bar_idx >= bar_event_counts.len() {
+                bar_event_counts.resize(bar_idx + 1, [0; 4]);
+            }
+            let action = msg.action as u8 as char;
+            match action {
+                'A' => bar_event_counts[bar_idx][0] += 1,
+                'C' => bar_event_counts[bar_idx][1] += 1,
+                'M' => bar_event_counts[bar_idx][2] += 1,
+                'T' => bar_event_counts[bar_idx][3] += 1,
+                _ => {}
+            }
+        }
 
         let flags = msg.flags.raw();
         if flags & F_LAST != 0 && id == instrument_id {
@@ -307,18 +382,38 @@ pub fn run_rust_pipeline_all_bars(dbn_path: &Path, instrument_id: u32) -> Result
     }
 
     // Emit remaining snapshots up to RTH close
+    let mut post_loop_snaps = 0u32;
     while next_snap_ts < rth_close {
         if let Some(snap) = book.snapshot(next_snap_ts) {
+            post_loop_snaps += 1;
             if let Some(bar) = bar_builder.on_snapshot(&snap) {
                 bar_list.push(bar);
             }
         }
         next_snap_ts += SNAPSHOT_INTERVAL_NS;
     }
+    if post_loop_snaps > 0 {
+        eprintln!("  DIAG: post-loop snapshots emitted: {}", post_loop_snaps);
+    }
 
     // Flush any partial bar
     if let Some(bar) = bar_builder.flush() {
         bar_list.push(bar);
+    }
+
+    // Override bar event counts with ceiling-based attribution.
+    for (i, bar) in bar_list.iter_mut().enumerate() {
+        if i < bar_event_counts.len() {
+            bar.add_count = bar_event_counts[i][0];
+            bar.cancel_count = bar_event_counts[i][1];
+            bar.modify_count = bar_event_counts[i][2];
+            bar.trade_event_count = bar_event_counts[i][3];
+        } else {
+            bar.add_count = 0;
+            bar.cancel_count = 0;
+            bar.modify_count = 0;
+            bar.trade_event_count = 0;
+        }
     }
 
     Ok(bar_list)
@@ -401,6 +496,16 @@ pub fn load_reference_parquet(path: &Path) -> Result<Vec<[f64; 20]>> {
 /// Uses a streaming approach to avoid storing all committed states in memory.
 pub fn run_rust_pipeline(dbn_path: &Path, instrument_id: u32) -> Result<Vec<[f64; 20]>> {
     let bar_list = run_rust_pipeline_all_bars(dbn_path, instrument_id)?;
+
+    // Debug: dump per-bar high/low/close/spread to temp file for analysis
+    if std::env::var("PARITY_BAR_DUMP").is_ok() {
+        use std::io::Write;
+        let mut f = std::fs::File::create("/tmp/parity_bar_dump.csv").unwrap();
+        writeln!(f, "full_idx,high_mid,low_mid,close_mid,spread,snap_count").unwrap();
+        for (i, bar) in bar_list.iter().enumerate() {
+            writeln!(f, "{},{:.6},{:.6},{:.6},{:.6},{}", i, bar.high_mid, bar.low_mid, bar.close_mid, bar.spread, bar.snapshot_count).unwrap();
+        }
+    }
 
     // Compute features (batch mode with fixup)
     let mut computer = BarFeatureComputer::new();
@@ -547,6 +652,32 @@ pub fn compare_features(
         let mean_dev = if n > 0 { sum_dev / n as f64 } else { 0.0 };
         let passed = max_dev <= tolerance;
 
+        // Debug: print details for failing features
+        if !passed {
+            eprintln!(
+                "  DEBUG {}: worst_bar={} rust={:.6} ref={:.6} dev={:.6}",
+                FEATURE_NAMES[feat_idx],
+                worst_bar.unwrap_or(0),
+                worst_rust_val.unwrap_or(0.0),
+                worst_ref_val.unwrap_or(0.0),
+                max_dev
+            );
+            // Print top 5 worst bars
+            let mut devs: Vec<(usize, f64, f64, f64)> = (0..n)
+                .map(|i| {
+                    let d = (rust[i][feat_idx] - reference[i][feat_idx]).abs();
+                    (i, d, rust[i][feat_idx], reference[i][feat_idx])
+                })
+                .collect();
+            devs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            for &(bar, dev, r, ref_v) in devs.iter().take(5) {
+                eprintln!(
+                    "    bar={} dev={:.6} rust={:.6} ref={:.6}",
+                    bar, dev, r, ref_v
+                );
+            }
+        }
+
         // Only report worst bar details if the feature failed
         let (wb, wrv, wrefv) = if !passed {
             (worst_bar, worst_rust_val, worst_ref_val)
@@ -563,6 +694,37 @@ pub fn compare_features(
             worst_rust_val: wrv,
             worst_ref_val: wrefv,
         });
+    }
+
+    // Dump ALL hlr50 deviations to find patterns
+    {
+        let feat_idx = 12; // high_low_range_50
+        let mut deviating_bars: Vec<(usize, f64, f64)> = Vec::new();
+        for bar_idx in 0..n {
+            let dev = (rust[bar_idx][feat_idx] - reference[bar_idx][feat_idx]).abs();
+            if dev > 0.001 {
+                deviating_bars.push((bar_idx, rust[bar_idx][feat_idx], reference[bar_idx][feat_idx]));
+            }
+        }
+        if !deviating_bars.is_empty() {
+            eprintln!("  HLR50 deviations ({} bars):", deviating_bars.len());
+            // Print first few transitions (where deviation starts/changes)
+            let mut prev_dev = 0.0f64;
+            for &(bar, r, rf) in &deviating_bars {
+                let dev = (r - rf).abs();
+                if (dev - prev_dev).abs() > 0.001 {
+                    eprintln!("    bar={} rust={:.1} ref={:.1} dev={:.1} (transition)", bar, r, rf, dev);
+                    prev_dev = dev;
+                }
+            }
+            // Print first and last deviating bar
+            if let Some(&(bar, r, rf)) = deviating_bars.first() {
+                eprintln!("    first_deviating_bar={} rust={:.1} ref={:.1}", bar, r, rf);
+            }
+            if let Some(&(bar, r, rf)) = deviating_bars.last() {
+                eprintln!("    last_deviating_bar={} rust={:.1} ref={:.1}", bar, r, rf);
+            }
+        }
     }
 
     let all_passed = per_feature.iter().all(|f| f.passed);
