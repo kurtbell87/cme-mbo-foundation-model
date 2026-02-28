@@ -1,0 +1,1 @@
+../../../orchestration-kit/mathematics-kit/scripts/mathlib-search.sh
