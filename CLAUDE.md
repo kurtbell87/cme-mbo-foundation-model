@@ -111,8 +111,9 @@ After every session that changes the codebase, update:
 
 ## Current State (updated 2026-02-28)
 
-- **Build:** GREEN — compiles clean, 2 warnings (unused imports in pipeline_test.rs)
-- **Tests:** 255 passed, 0 failed, 3 ignored (workspace-wide via `cargo test --workspace`)
-- **Branch:** `feat/migration-phase0-2`
-- **Phases completed:** 0 (Parity harness), 0b (Pipeline wiring), 1 (XGBoost FFI), 2 (Rithmic protobuf)
-- **Next task:** Run parity test against real C++ reference Parquet data (251-day validation gate). Then Phase 3 (Rithmic WebSocket Client).
+- **Build:** GREEN — compiles clean, 0 warnings
+- **Tests:** 262 passed, 0 failed, 15 ignored (workspace-wide via `cargo test --workspace`)
+- **Branch:** `tdd/parity-test-pipeline`
+- **Phases completed:** 0 (Parity harness), 0b (Pipeline wiring), 0c (Bar count parity fix — TDD tests written), 1 (XGBoost FFI), 2 (Rithmic protobuf)
+- **Active spec:** `.kit/docs/bar-count-parity-fix.md` — bar count off-by-one (Rust 4631 vs C++ 4630). TDD red/green tests in `bar_count_parity_test.rs` (7 pass, 12 ignored pending real data).
+- **Next task:** Diagnose and fix bar count off-by-one, then run parity test against real C++ reference Parquet data (251-day validation gate). Then Phase 3 (Rithmic WebSocket Client).
