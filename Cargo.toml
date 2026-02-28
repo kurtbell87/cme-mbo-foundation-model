@@ -1,3 +1,8 @@
+[package]
+name = "mbo-dl-rust"
+version = "0.1.0"
+edition = "2021"
+
 [workspace]
 resolver = "2"
 members = [
@@ -11,10 +16,12 @@ members = [
     "crates/models",
     "crates/databento-ingest",
     "crates/rithmic-client",
+    "crates/xgboost-ffi",
     "tools/bar-feature-export",
     "tools/oracle-expectancy",
     "tools/subordination-test",
     "tools/info-decomposition",
+    "tools/parity-test",
 ]
 
 [workspace.package]
@@ -35,6 +42,7 @@ analysis = { path = "crates/analysis" }
 models = { path = "crates/models" }
 databento-ingest = { path = "crates/databento-ingest" }
 rithmic-client = { path = "crates/rithmic-client" }
+xgboost-ffi = { path = "crates/xgboost-ffi" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -70,6 +78,10 @@ anyhow = "1"
 
 # Testing
 tempfile = "3"
+
+[dev-dependencies]
+xgboost-ffi = { workspace = true }
+serde_json = { workspace = true }
 
 [profile.release]
 lto = true

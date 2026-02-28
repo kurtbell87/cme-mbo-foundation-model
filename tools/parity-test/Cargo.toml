@@ -1,0 +1,11 @@
+[package]
+name = "parity-test"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "parity-test"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
