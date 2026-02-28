@@ -1,0 +1,10 @@
+[package]
+name = "databento-ingest"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+common = { workspace = true }
+book-builder = { workspace = true }
+dbn = { workspace = true }
+thiserror = { workspace = true }

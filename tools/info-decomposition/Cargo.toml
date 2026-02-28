@@ -1,0 +1,15 @@
+[package]
+name = "info-decomposition"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "info-decomposition"
+path = "src/main.rs"
+
+[dependencies]
+common = { workspace = true }
+features = { workspace = true }
+analysis = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }

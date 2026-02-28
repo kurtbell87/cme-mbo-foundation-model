@@ -1,0 +1,9 @@
+[package]
+name = "backtest"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+common = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

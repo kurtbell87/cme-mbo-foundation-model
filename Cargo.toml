@@ -1,0 +1,74 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/common",
+    "crates/book-builder",
+    "crates/bars",
+    "crates/features",
+    "crates/labels",
+    "crates/backtest",
+    "crates/analysis",
+    "crates/models",
+    "crates/databento-ingest",
+    "crates/rithmic-client",
+    "tools/bar-feature-export",
+    "tools/oracle-expectancy",
+    "tools/subordination-test",
+    "tools/info-decomposition",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Kenoma Labs"]
+license = "MIT"
+
+[workspace.dependencies]
+# Internal crates
+common = { path = "crates/common" }
+book-builder = { path = "crates/book-builder" }
+bars = { path = "crates/bars" }
+features = { path = "crates/features" }
+labels = { path = "crates/labels" }
+backtest = { path = "crates/backtest" }
+analysis = { path = "crates/analysis" }
+models = { path = "crates/models" }
+databento-ingest = { path = "crates/databento-ingest" }
+rithmic-client = { path = "crates/rithmic-client" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Data formats
+parquet = "58"
+arrow = "58"
+
+# Databento (first-party)
+dbn = "0.50"
+# databento = "0.42"  # Uncomment when ready for live data
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Async runtime (for Rithmic client)
+tokio = { version = "1", features = ["full"] }
+
+# Protobuf (for Rithmic)
+prost = "0.14"
+prost-build = "0.14"
+
+# WebSocket (for Rithmic)
+tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
+
+# Benchmarking
+criterion = "0.5"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

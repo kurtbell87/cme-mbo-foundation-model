@@ -1,0 +1,7 @@
+[package]
+name = "book-builder"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+common = { workspace = true }
