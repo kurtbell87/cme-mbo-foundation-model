@@ -1122,6 +1122,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mbo-dl-rust"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "xgboost-ffi",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1326,6 +1334,13 @@ name = "oval"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "135cef32720c6746450d910890b0b69bcba2bbf6f85c9f4583df13fe415de828"
+
+[[package]]
+name = "parity-test"
+version = "0.1.0"
+dependencies = [
+ "clap",
+]
 
 [[package]]
 name = "parking_lot"
@@ -2394,6 +2409,15 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser",
+]
+
+[[package]]
+name = "xgboost-ffi"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
