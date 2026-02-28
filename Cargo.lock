@@ -1339,7 +1339,15 @@ checksum = "135cef32720c6746450d910890b0b69bcba2bbf6f85c9f4583df13fe415de828"
 name = "parity-test"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "arrow",
+ "bars",
  "clap",
+ "common",
+ "databento-ingest",
+ "dbn",
+ "features",
+ "parquet",
 ]
 
 [[package]]
