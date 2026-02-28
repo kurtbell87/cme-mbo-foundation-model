@@ -1,0 +1,14 @@
+[package]
+name = "rithmic-client"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+common = { workspace = true }
+prost = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+prost-build = { workspace = true }
