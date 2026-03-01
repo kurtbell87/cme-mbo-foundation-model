@@ -1,0 +1,13 @@
+[package]
+name = "rithmic-live"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "rithmic-live"
+path = "src/main.rs"
+
+[dependencies]
+rithmic-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }

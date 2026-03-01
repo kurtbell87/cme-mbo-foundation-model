@@ -222,6 +222,20 @@ impl BookBuilder {
         result
     }
 
+    // --- Public accessors for BBO validation ---
+
+    /// Returns the best bid price as raw i64 fixed-point (1e-9 scale).
+    /// Returns None if there are no bid levels.
+    pub fn best_bid_price(&self) -> Option<i64> {
+        self.bid_levels.keys().next_back().copied()
+    }
+
+    /// Returns the best ask price as raw i64 fixed-point (1e-9 scale).
+    /// Returns None if there are no ask levels.
+    pub fn best_ask_price(&self) -> Option<i64> {
+        self.ask_levels.keys().next().copied()
+    }
+
     // --- Private methods ---
 
     fn levels_for_mut(&mut self, side: char) -> &mut BTreeMap<i64, u32> {
