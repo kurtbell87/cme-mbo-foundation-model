@@ -39,7 +39,7 @@
 //! }
 //!
 //! pub fn load_reference_parquet(path: &Path) -> Result<Vec<[f64; 20]>>;
-//! pub fn run_rust_pipeline(dbn_path: &Path, instrument_id: u32) -> Result<Vec<[f64; 20]>>;
+//! pub fn run_rust_pipeline(dbn_path: &Path, instrument_id: u32, date: &str) -> Result<Vec<[f64; 20]>>;
 //! pub fn match_day_files(ref_dir: &Path, data_dir: &Path) -> Result<Vec<DayPair>>;
 //! pub fn compare_features(
 //!     rust: &[[f64; 20]], reference: &[[f64; 20]], tolerance: f64,
@@ -219,7 +219,7 @@ fn run_rust_pipeline_produces_non_empty_result() {
         return;
     }
     let features =
-        run_rust_pipeline(dbn_path, 11355).expect("Pipeline should process valid DBN file");
+        run_rust_pipeline(dbn_path, 11355, "20220103").expect("Pipeline should process valid DBN file");
     assert!(
         !features.is_empty(),
         "Pipeline must produce at least one non-warmup bar from a real trading day",
@@ -235,7 +235,7 @@ fn run_rust_pipeline_features_are_finite_after_warmup() {
         eprintln!("SKIP: DBN file not found");
         return;
     }
-    let features = run_rust_pipeline(dbn_path, 11355).unwrap();
+    let features = run_rust_pipeline(dbn_path, 11355, "20220103").unwrap();
     // All 20 features of every non-warmup bar must be finite (not NaN, not Inf).
     for (bar_idx, row) in features.iter().enumerate() {
         for (feat_idx, &val) in row.iter().enumerate() {
@@ -253,7 +253,7 @@ fn run_rust_pipeline_features_are_finite_after_warmup() {
 
 #[test]
 fn run_rust_pipeline_error_on_nonexistent_file() {
-    let result = run_rust_pipeline(Path::new("/nonexistent/data.dbn.zst"), 11355);
+    let result = run_rust_pipeline(Path::new("/nonexistent/data.dbn.zst"), 11355, "20220103");
     assert!(
         result.is_err(),
         "Pipeline must return Err for nonexistent DBN file",
@@ -272,7 +272,7 @@ fn run_rust_pipeline_uses_time_bars_5_second() {
         eprintln!("SKIP: DBN file not found");
         return;
     }
-    let features = run_rust_pipeline(dbn_path, 11355).unwrap();
+    let features = run_rust_pipeline(dbn_path, 11355, "20220103").unwrap();
     // Sanity: a 6.5-hour trading day at 5s bars ≈ 4680 bars total, minus 50 warmup.
     assert!(
         features.len() > 4000 && features.len() < 6000,
@@ -860,7 +860,7 @@ fn single_day_2022_01_03_end_to_end() {
 
     let reference = load_reference_parquet(ref_path)
         .expect("Should load 2022-01-03 reference Parquet");
-    let rust = run_rust_pipeline(dbn_path, 11355)
+    let rust = run_rust_pipeline(dbn_path, 11355, "20220103")
         .expect("Should process 2022-01-03 DBN through pipeline");
 
     // Bar count must match (spec exit criterion)
@@ -901,7 +901,7 @@ fn single_day_2022_01_03_bar_count_matches_reference() {
     );
 
     let reference = load_reference_parquet(ref_path).unwrap();
-    let rust = run_rust_pipeline(dbn_path, 11355).unwrap();
+    let rust = run_rust_pipeline(dbn_path, 11355, "20220103").unwrap();
 
     // Spec: "Successfully processes at least 1 real day (2022-01-03) with
     // bar count match to reference"
@@ -925,7 +925,7 @@ fn single_day_2022_01_03_deviation_above_tolerance_flagged() {
     );
 
     let reference = load_reference_parquet(ref_path).unwrap();
-    let rust = run_rust_pipeline(dbn_path, 11355).unwrap();
+    let rust = run_rust_pipeline(dbn_path, 11355, "20220103").unwrap();
 
     let result = compare_features(&rust, &reference, 1e-5);
 

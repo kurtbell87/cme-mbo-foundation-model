@@ -51,6 +51,36 @@ pub struct DayPair {
     pub dbn_path: PathBuf,
 }
 
+// ---------------------------------------------------------------------------
+// MES contract rollover table (matches C++ bar_feature_export.cpp)
+// ---------------------------------------------------------------------------
+
+struct QuarterlyContract {
+    _symbol: &'static str,
+    instrument_id: u32,
+    start_date: u32,
+    end_date: u32,
+}
+
+const MES_CONTRACTS: &[QuarterlyContract] = &[
+    QuarterlyContract { _symbol: "MESH2", instrument_id: 11355, start_date: 20220103, end_date: 20220317 },
+    QuarterlyContract { _symbol: "MESM2", instrument_id: 13615, start_date: 20220318, end_date: 20220616 },
+    QuarterlyContract { _symbol: "MESU2", instrument_id: 10039, start_date: 20220617, end_date: 20220915 },
+    QuarterlyContract { _symbol: "MESZ2", instrument_id: 10299, start_date: 20220916, end_date: 20221216 },
+    QuarterlyContract { _symbol: "MESH3", instrument_id: 2080,  start_date: 20221217, end_date: 20221230 },
+];
+
+/// Look up the MES instrument_id for a given trading date (YYYYMMDD).
+pub fn get_instrument_id(date: &str) -> u32 {
+    let date_int: u32 = date.parse().unwrap_or(0);
+    for c in MES_CONTRACTS {
+        if date_int >= c.start_date && date_int <= c.end_date {
+            return c.instrument_id;
+        }
+    }
+    13615 // Default to MESM2
+}
+
 /// Per-feature deviation statistics from a comparison run.
 pub struct FeatureDeviation {
     /// Feature name (one of FEATURE_NAMES).
@@ -297,16 +327,18 @@ impl StreamingBook {
 ///
 /// Pipeline: dbn.zst → streaming book → 100ms snapshots
 ///           → 5s time bars → ceiling-based event attribution.
-pub fn run_rust_pipeline_all_bars(dbn_path: &Path, instrument_id: u32) -> Result<Vec<Bar>> {
+pub fn run_rust_pipeline_all_bars(dbn_path: &Path, instrument_id: u32, date: &str) -> Result<Vec<Bar>> {
     let mut decoder = DbnDecoder::from_zstd_file(dbn_path)
         .map_err(|e| anyhow::anyhow!("Failed to open DBN file: {}", e))?;
 
     let mut book = StreamingBook::new();
     let mut first_ts: Option<u64> = None;
-    let mut rth_close: u64 = 0;
-    let mut next_snap_ts: u64 = 0;
+    // Compute RTH boundaries from the explicit date string — avoids the bug
+    // where deriving from first_ts gets the wrong day for globex session events.
+    let rth_open_ns: u64 = time_utils::rth_open_for_date(date);
+    let rth_close: u64 = time_utils::rth_close_for_date(date);
+    let mut next_snap_ts: u64 = rth_open_ns;
     let mut counting_started = false;
-    let mut rth_open_ns: u64 = 0;
     let mut bar_builder = TimeBarBuilder::new(5);
     let mut bar_list = Vec::new();
     let snaps_per_bar: u64 = 50;
@@ -323,16 +355,6 @@ pub fn run_rust_pipeline_all_bars(dbn_path: &Path, instrument_id: u32) -> Result
 
         if first_ts.is_none() && id == instrument_id {
             first_ts = Some(ts);
-            let mut rth_open = time_utils::rth_open_ns(ts);
-            rth_close = time_utils::rth_close_ns(ts);
-            if ts >= rth_open {
-                let next_midnight =
-                    time_utils::midnight_et_ns(ts) + time_utils::NS_PER_DAY;
-                rth_open = time_utils::rth_open_ns(next_midnight);
-                rth_close = time_utils::rth_close_ns(next_midnight);
-            }
-            rth_open_ns = rth_open;
-            next_snap_ts = rth_open;
         }
 
         // Clear pre-RTH event counts before processing the first RTH event
@@ -494,8 +516,8 @@ pub fn load_reference_parquet(path: &Path) -> Result<Vec<[f64; 20]>> {
 ///           → BarFeatureComputer → extract 20 model features.
 ///
 /// Uses a streaming approach to avoid storing all committed states in memory.
-pub fn run_rust_pipeline(dbn_path: &Path, instrument_id: u32) -> Result<Vec<[f64; 20]>> {
-    let bar_list = run_rust_pipeline_all_bars(dbn_path, instrument_id)?;
+pub fn run_rust_pipeline(dbn_path: &Path, instrument_id: u32, date: &str) -> Result<Vec<[f64; 20]>> {
+    let bar_list = run_rust_pipeline_all_bars(dbn_path, instrument_id, date)?;
 
     // Debug: dump per-bar high/low/close/spread to temp file for analysis
     if std::env::var("PARITY_BAR_DUMP").is_ok() {

@@ -39,6 +39,7 @@ use std::path::Path;
 const REF_PARQUET: &str = "/Users/brandonbell/LOCAL_DEV/MBO-DL-02152026/.kit/results/full-year-export/2022-01-03.parquet";
 const DBN_FILE: &str = "/Users/brandonbell/LOCAL_DEV/MBO-DL-02152026/DATA/GLBX-20260207-L953CAPU5B/glbx-mdp3-20220103.mbo.dbn.zst";
 const INSTRUMENT_ID: u32 = 11355; // MES contract
+const TEST_DATE: &str = "20220103";
 
 // ---------------------------------------------------------------------------
 // Expected constants derived from the spec
@@ -198,7 +199,7 @@ fn t1_bar_count_rust_equals_reference_2022_01_03() {
 
     let reference = load_reference_parquet(ref_path)
         .expect("Should load 2022-01-03 reference Parquet");
-    let rust = run_rust_pipeline(dbn_path, INSTRUMENT_ID)
+    let rust = run_rust_pipeline(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should process 2022-01-03 DBN through pipeline");
 
     assert_eq!(
@@ -217,7 +218,7 @@ fn t1_bar_count_rust_equals_reference_2022_01_03() {
 fn t1_non_warmup_bar_count_is_4630() {
     let dbn_path = Path::new(DBN_FILE);
 
-    let rust = run_rust_pipeline(dbn_path, INSTRUMENT_ID)
+    let rust = run_rust_pipeline(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should process 2022-01-03 DBN through pipeline");
 
     assert_eq!(
@@ -244,7 +245,7 @@ fn t1_non_warmup_bar_count_is_4630() {
 fn t2_first_non_warmup_bar_opens_at_expected_timestamp() {
     let dbn_path = Path::new(DBN_FILE);
 
-    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID)
+    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should return all bars including warmup");
 
     assert!(
@@ -278,7 +279,7 @@ fn t2_first_non_warmup_bar_opens_at_expected_timestamp() {
 fn t3_last_bar_closes_before_rth_close() {
     let dbn_path = Path::new(DBN_FILE);
 
-    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID)
+    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should return all bars");
 
     assert!(
@@ -329,7 +330,7 @@ fn t3_last_bar_closes_before_rth_close() {
 fn t4_no_bar_timestamp_at_or_past_rth_close() {
     let dbn_path = Path::new(DBN_FILE);
 
-    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID)
+    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should return all bars");
 
     let rth_close = time_utils::rth_close_ns(REF_MIDNIGHT_ET_NS);
@@ -356,7 +357,7 @@ fn t4_no_bar_timestamp_at_or_past_rth_close() {
 fn t5_total_snapshot_count_is_234000() {
     let dbn_path = Path::new(DBN_FILE);
 
-    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID)
+    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should return all bars");
 
     let total_snapshots: u64 = all_bars
@@ -384,7 +385,7 @@ fn t5_no_partial_bar_at_end_of_session() {
     // few snapshots were emitted.
     let dbn_path = Path::new(DBN_FILE);
 
-    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID)
+    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should return all bars");
 
     let last_bar = all_bars.last().expect("Must have at least one bar");
@@ -405,7 +406,7 @@ fn t5_no_partial_bar_at_end_of_session() {
 fn t5_total_bar_count_including_warmup_is_4680() {
     let dbn_path = Path::new(DBN_FILE);
 
-    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID)
+    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should return all bars");
 
     assert_eq!(
@@ -432,7 +433,7 @@ fn t5_total_bar_count_including_warmup_is_4680() {
 fn all_bars_have_50_snapshots_except_possibly_last() {
     let dbn_path = Path::new(DBN_FILE);
 
-    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID)
+    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should return all bars");
 
     // All bars except possibly the last must have exactly 50 snapshots.
@@ -454,7 +455,7 @@ fn all_bars_have_50_snapshots_except_possibly_last() {
 fn bar_timestamps_are_monotonically_increasing() {
     let dbn_path = Path::new(DBN_FILE);
 
-    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID)
+    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should return all bars");
 
     for i in 1..all_bars.len() {
@@ -476,7 +477,7 @@ fn bar_timestamps_are_monotonically_increasing() {
 fn first_bar_opens_at_rth_open() {
     let dbn_path = Path::new(DBN_FILE);
 
-    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID)
+    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should return all bars");
 
     let rth_open = time_utils::rth_open_ns(REF_MIDNIGHT_ET_NS);
@@ -496,9 +497,9 @@ fn pipeline_features_and_bars_agree_on_count() {
     // must agree on the number of non-warmup bars.
     let dbn_path = Path::new(DBN_FILE);
 
-    let features = run_rust_pipeline(dbn_path, INSTRUMENT_ID)
+    let features = run_rust_pipeline(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should produce features");
-    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID)
+    let all_bars = run_rust_pipeline_all_bars(dbn_path, INSTRUMENT_ID, TEST_DATE)
         .expect("Should produce bars");
 
     let non_warmup_bar_count = all_bars.len().saturating_sub(WARMUP_BARS);
