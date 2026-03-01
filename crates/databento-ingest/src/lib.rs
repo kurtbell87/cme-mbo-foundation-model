@@ -72,13 +72,23 @@ fn side_to_i32(side: char) -> i32 {
 /// for the specified `instrument_id`, then emits snapshots at 100ms
 /// intervals during RTH (09:30–16:00 ET).
 ///
+/// The `date` parameter (YYYYMMDD format) specifies the trading day. This
+/// is required because `.dbn.zst` files contain events starting from the
+/// previous evening's globex session, so deriving the date from event
+/// timestamps would yield the wrong day.
+///
 /// Also populates a `DayEventBuffer` with all events for the instrument,
 /// which can be used for bar-level message summary computation.
 pub fn ingest_day_file(
     path: impl AsRef<Path>,
     instrument_id: u32,
+    date: &str,
 ) -> Result<DayIngestResult, IngestError> {
     let path = path.as_ref();
+
+    // Compute RTH boundaries from the explicit date (not from event timestamps).
+    let rth_open = time_utils::rth_open_for_date(date);
+    let rth_close = time_utils::rth_close_for_date(date);
 
     let mut decoder =
         DbnDecoder::from_zstd_file(path).map_err(|e| IngestError::Dbn(e.to_string()))?;
@@ -128,10 +138,6 @@ pub fn ingest_day_file(
         Some(ts) => ts,
         None => return Err(IngestError::NoRecords(instrument_id)),
     };
-
-    // Determine RTH boundaries from the first event timestamp
-    let rth_open = time_utils::rth_open_ns(first_ts);
-    let rth_close = time_utils::rth_close_ns(first_ts);
 
     // Emit snapshots during RTH
     let snapshots = builder.emit_snapshots(rth_open, rth_close);
@@ -183,9 +189,12 @@ mod tests {
         );
     }
 
+    /// Date string for the reference date used in all synthetic test data.
+    const TEST_DATE: &str = "20220103";
+
     #[test]
     fn test_missing_file_returns_error() {
-        let result = ingest_day_file("/nonexistent/path.dbn.zst", 12345);
+        let result = ingest_day_file("/nonexistent/path.dbn.zst", 12345, TEST_DATE);
         assert!(result.is_err());
     }
 
@@ -271,7 +280,7 @@ mod tests {
         ];
 
         let tmp = write_test_dbn(&records);
-        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT).expect("ingest should succeed");
+        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT, TEST_DATE).expect("ingest should succeed");
 
         assert_eq!(result.total_records, 2);
         assert_eq!(result.instrument_records, 2);
@@ -325,7 +334,7 @@ mod tests {
         ));
 
         let tmp = write_test_dbn(&records);
-        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT).expect("ingest should succeed");
+        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT, TEST_DATE).expect("ingest should succeed");
 
         assert_eq!(result.total_records, 5);
         assert_eq!(result.instrument_records, 5);
@@ -352,7 +361,7 @@ mod tests {
         ];
 
         let tmp = write_test_dbn(&records);
-        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT).expect("ingest should succeed");
+        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT, TEST_DATE).expect("ingest should succeed");
 
         assert_eq!(result.total_records, 4);
         assert_eq!(result.instrument_records, 2);
@@ -374,7 +383,7 @@ mod tests {
         )];
 
         let tmp = write_test_dbn(&records);
-        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT);
+        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT, TEST_DATE);
 
         assert!(result.is_err());
         assert!(
@@ -396,7 +405,7 @@ mod tests {
         ];
 
         let tmp = write_test_dbn(&records);
-        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT).expect("ingest should succeed");
+        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT, TEST_DATE).expect("ingest should succeed");
 
         assert_eq!(result.instrument_records, 2);
         // Pre-RTH book carries into RTH, so we get snapshots from 09:30 onwards
@@ -429,7 +438,7 @@ mod tests {
         ];
 
         let tmp = write_test_dbn(&records);
-        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT).expect("ingest should succeed");
+        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT, TEST_DATE).expect("ingest should succeed");
 
         // Check that the trade appears in at least one snapshot's trade buffer
         let has_trade = result.snapshots.iter().any(|snap| {
@@ -457,7 +466,7 @@ mod tests {
         records.push(make_mbo(ts_end, 102, TEST_INSTRUMENT, b'A', b'B', bid_price, 15, true));
 
         let tmp = write_test_dbn(&records);
-        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT).expect("ingest should succeed");
+        let result = ingest_day_file(tmp.path(), TEST_INSTRUMENT, TEST_DATE).expect("ingest should succeed");
 
         // Snapshots span from just after ts_start to rth_close.
         // The book is only committed twice, but emit_snapshots generates one per 100ms

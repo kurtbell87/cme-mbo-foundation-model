@@ -64,9 +64,9 @@ struct Args {
     #[arg(long)]
     legacy_labels: bool,
 
-    /// Date tag for metadata (YYYYMMDD format)
+    /// Trading date (YYYYMMDD format) — used to compute RTH boundaries
     #[arg(long)]
-    date: Option<String>,
+    date: String,
 }
 
 fn main() -> Result<()> {
@@ -85,15 +85,13 @@ fn main() -> Result<()> {
         "  time_horizon: {}s, volume_horizon: {}",
         args.max_time_horizon, args.volume_horizon
     );
-    if let Some(ref d) = args.date {
-        eprintln!("  date:          {}", d);
-    }
+    eprintln!("  date:          {}", args.date);
 
     // -----------------------------------------------------------------------
     // Step 1: Ingest .dbn.zst
     // -----------------------------------------------------------------------
     eprintln!("[1/7] Ingesting {}...", args.input);
-    let ingest = databento_ingest::ingest_day_file(&args.input, args.instrument_id)
+    let ingest = databento_ingest::ingest_day_file(&args.input, args.instrument_id, &args.date)
         .context("Failed to ingest .dbn.zst file")?;
 
     if ingest.snapshots.is_empty() {
@@ -146,11 +144,7 @@ fn main() -> Result<()> {
     let mut computer = BarFeatureComputer::new();
     let mut rows = computer.compute_all(&bars);
 
-    let day_val: i32 = args
-        .date
-        .as_deref()
-        .and_then(|d| d.replace('-', "").parse().ok())
-        .unwrap_or(0);
+    let day_val: i32 = args.date.replace('-', "").parse().unwrap_or(0);
 
     for row in rows.iter_mut() {
         row.bar_type = args.bar_type.clone();
