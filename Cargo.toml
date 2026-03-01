@@ -22,6 +22,7 @@ members = [
     "tools/subordination-test",
     "tools/info-decomposition",
     "tools/parity-test",
+    "tools/rithmic-live",
 ]
 
 [workspace.package]
