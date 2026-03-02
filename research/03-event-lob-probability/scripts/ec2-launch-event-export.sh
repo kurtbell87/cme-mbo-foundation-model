@@ -30,7 +30,7 @@ IAM_PROFILE="cloud-run-ec2"
 DBN_SNAPSHOT="snap-0efa355754c9a329d"   # mbo-data-2022 (60GB, 316 DBN files)
 
 if $FULL_EXPORT; then
-    INSTANCE_TYPE="c7a.32xlarge"         # 128 vCPU, 256 GB — full export
+    INSTANCE_TYPE="c7a.16xlarge"         # 64 vCPU, 128 GB — full export (spot)
     RUN_ID="event-export-full-$(date +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 4)"
 else
     INSTANCE_TYPE="c7a.4xlarge"          # 16 vCPU, 32 GB — validation
@@ -242,7 +242,8 @@ if [[ "$FULL_EXPORT" == "true" ]]; then
         instrument_id=$(get_instrument_id "$date_str")
         out_file="${WORK}/events-bbo/${date_str}-events.parquet"
         log_file="${WORK}/results/${date_str}-bbo-export.log"
-        if [[ -f "$out_file" ]]; then continue; fi
+        # Skip only if file exists and is >100KB (corrupt files are ~16KB)
+        if [[ -f "$out_file" ]] && [[ $(stat -c%s "$out_file" 2>/dev/null || echo 0) -gt 100000 ]]; then continue; fi
         echo "${date_str} ${instrument_id} ${dbn_file} ${out_file} bbo ${log_file}" >> ${JOB_FILE}
     done
     echo "  $(wc -l < ${JOB_FILE}) days to export (BBO-change only, parallel)"
@@ -266,7 +267,7 @@ fi
 # ── Run exports in parallel ──
 NCPU=$(nproc)
 MEM_GB=$(awk '/MemTotal/{printf "%d", $2/1048576}' /proc/meminfo)
-MAX_BY_MEM=$((MEM_GB / 2))  # ~2 GB per job (conservative)
+MAX_BY_MEM=$((MEM_GB / 4))  # ~4 GB per job (ingest + export + tick data)
 NJOBS_PAR=$((NCPU < MAX_BY_MEM ? NCPU : MAX_BY_MEM))
 if [[ ${NJOBS_PAR} -lt 1 ]]; then NJOBS_PAR=1; fi
 echo "  Parallelism: ${NJOBS_PAR} (${NCPU} cores, ${MEM_GB} GB RAM)"
@@ -274,7 +275,7 @@ echo "  Parallelism: ${NJOBS_PAR} (${NCPU} cores, ${MEM_GB} GB RAM)"
 EXPORT_START=$(date +%s)
 echo "=== Exporting (${NJOBS_PAR} parallel jobs) ==="
 
-cat ${JOB_FILE} | parallel --colsep ' ' -j ${NJOBS_PAR} --progress \
+cat ${JOB_FILE} | parallel --colsep ' ' -j ${NJOBS_PAR} \
     "run_export {1} {2} {3} {4} {5} {6}"
 
 EXPORT_END=$(date +%s)
@@ -382,6 +383,7 @@ BDM="${BDM//__DBN_SNAPSHOT__/${DBN_SNAPSHOT}}"
 
 # Try spot first, fall back to on-demand
 LAUNCH_MODE="spot"
+SPOT_ERR=$(mktemp)
 INSTANCE_ID=$(aws ec2 run-instances \
     --image-id "${AMI_ID}" \
     --instance-type "${INSTANCE_TYPE}" \
@@ -395,10 +397,11 @@ INSTANCE_ID=$(aws ec2 run-instances \
     --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=event-export-${RUN_ID}},{Key=ManagedBy,Value=cloud-run},{Key=RunId,Value=${RUN_ID}}]" \
     --client-token "cloud-run-spot-${RUN_ID:0:59}" \
     --region "${AWS_REGION}" \
-    --query "Instances[0].InstanceId" --output text 2>&1) || true
+    --query "Instances[0].InstanceId" --output text 2>"${SPOT_ERR}") || true
 
-if [[ "${INSTANCE_ID}" == *"error"* ]] || [[ "${INSTANCE_ID}" == *"Error"* ]] || [[ -z "${INSTANCE_ID}" ]]; then
-    echo "  Spot failed, launching on-demand..."
+if [[ -z "${INSTANCE_ID}" ]] || [[ "${INSTANCE_ID}" == "None" ]]; then
+    echo "  Spot failed: $(cat ${SPOT_ERR})"
+    echo "  Launching on-demand..."
     LAUNCH_MODE="on-demand"
     INSTANCE_ID=$(aws ec2 run-instances \
         --image-id "${AMI_ID}" \
@@ -414,6 +417,7 @@ if [[ "${INSTANCE_ID}" == *"error"* ]] || [[ "${INSTANCE_ID}" == *"Error"* ]] ||
         --region "${AWS_REGION}" \
         --query "Instances[0].InstanceId" --output text)
 fi
+rm -f "${SPOT_ERR}"
 
 echo "  Instance: ${INSTANCE_ID} (${LAUNCH_MODE})"
 
