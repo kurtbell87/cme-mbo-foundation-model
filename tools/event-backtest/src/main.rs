@@ -283,13 +283,25 @@ fn main() -> Result<()> {
     let mut all_rows: Vec<EventRow> = Vec::new();
     let mut day_boundaries: Vec<(usize, usize)> = Vec::new(); // (start_idx, end_idx) per day
 
+    let mut skipped_files = 0usize;
     for path in &parquet_files {
         let start = all_rows.len();
         let file = File::open(path).context("Failed to open Parquet file")?;
-        let reader = ParquetRecordBatchReaderBuilder::try_new(file)
-            .context("Failed to create Parquet reader")?
-            .build()
-            .context("Failed to build Parquet reader")?;
+        let reader = match ParquetRecordBatchReaderBuilder::try_new(file) {
+            Ok(builder) => match builder.build() {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("  SKIP {} (corrupt: {})", path.file_name().unwrap_or_default().to_string_lossy(), e);
+                    skipped_files += 1;
+                    continue;
+                }
+            },
+            Err(e) => {
+                eprintln!("  SKIP {} (corrupt: {})", path.file_name().unwrap_or_default().to_string_lossy(), e);
+                skipped_files += 1;
+                continue;
+            }
+        };
 
         for batch_result in reader {
             let batch = batch_result.context("Failed to read record batch")?;
@@ -377,6 +389,9 @@ fn main() -> Result<()> {
         );
     }
 
+    if skipped_files > 0 {
+        eprintln!("  Skipped {} corrupt files", skipped_files);
+    }
     eprintln!(
         "  Total: {} rows across {} days",
         all_rows.len(),
