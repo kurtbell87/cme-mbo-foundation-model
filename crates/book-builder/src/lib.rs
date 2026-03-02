@@ -19,14 +19,28 @@ struct TradeRecord {
     aggressor_side: f32, // +1.0 for buyer, -1.0 for seller
 }
 
-/// Committed book state after an F_LAST event.
-#[derive(Debug, Clone)]
+/// Compact committed book state after an F_LAST event.
+///
+/// Stores only the top BOOK_DEPTH levels per side plus precomputed mid/spread,
+/// instead of cloning full BTreeMaps. This reduces per-entry memory from ~5KB
+/// to ~180 bytes, critical for files with 500K+ F_LAST events.
+#[derive(Debug, Clone, Copy)]
 struct CommittedState {
     ts: u64,
-    bid_levels: BTreeMap<i64, u32>,
-    ask_levels: BTreeMap<i64, u32>,
     has_bid: bool,
     has_ask: bool,
+    /// Top BOOK_DEPTH bid levels: [price, size], descending by price (best bid first).
+    bids: [[f32; 2]; BOOK_DEPTH],
+    /// Top BOOK_DEPTH ask levels: [price, size], ascending by price (best ask first).
+    asks: [[f32; 2]; BOOK_DEPTH],
+    /// Precomputed mid price (0.0 if one-sided).
+    mid: f32,
+    /// Precomputed spread (0.0 if one-sided).
+    spread: f32,
+    /// Number of valid bid levels stored (0..BOOK_DEPTH).
+    n_bids: u8,
+    /// Number of valid ask levels stored (0..BOOK_DEPTH).
+    n_asks: u8,
 }
 
 /// Reconstructs an L2 order book from MBO events and emits 100ms snapshots.
@@ -55,6 +69,9 @@ pub struct BookBuilder {
     last_mid_price: f32,
     last_spread: f32,
     ever_had_both_sides: bool,
+
+    /// (timestamp_ns, mid_price) at every F_LAST with both sides quoted.
+    tick_mid_prices: Vec<(u64, f32)>,
 }
 
 const F_LAST: u8 = 0x80;
@@ -63,13 +80,40 @@ fn fixed_to_float(fixed: i64) -> f32 {
     (fixed as f64 / 1e9) as f32
 }
 
-fn compute_mid_spread(
+fn compute_mid_spread_from_levels(
     bids: &BTreeMap<i64, u32>,
     asks: &BTreeMap<i64, u32>,
 ) -> (f32, f32) {
     let best_bid = fixed_to_float(*bids.keys().next_back().unwrap());
     let best_ask = fixed_to_float(*asks.keys().next().unwrap());
     ((best_bid + best_ask) / 2.0, best_ask - best_bid)
+}
+
+/// Snapshot the top BOOK_DEPTH levels from a BTreeMap into a fixed-size array.
+fn snapshot_bids(levels: &BTreeMap<i64, u32>) -> ([[f32; 2]; BOOK_DEPTH], u8) {
+    let mut out = [[0.0f32; 2]; BOOK_DEPTH];
+    let mut count = 0u8;
+    for (&price, &size) in levels.iter().rev() {
+        if (count as usize) >= BOOK_DEPTH {
+            break;
+        }
+        out[count as usize] = [fixed_to_float(price), size as f32];
+        count += 1;
+    }
+    (out, count)
+}
+
+fn snapshot_asks(levels: &BTreeMap<i64, u32>) -> ([[f32; 2]; BOOK_DEPTH], u8) {
+    let mut out = [[0.0f32; 2]; BOOK_DEPTH];
+    let mut count = 0u8;
+    for (&price, &size) in levels.iter() {
+        if (count as usize) >= BOOK_DEPTH {
+            break;
+        }
+        out[count as usize] = [fixed_to_float(price), size as f32];
+        count += 1;
+    }
+    (out, count)
 }
 
 impl BookBuilder {
@@ -84,6 +128,7 @@ impl BookBuilder {
             last_mid_price: 0.0,
             last_spread: 0.0,
             ever_had_both_sides: false,
+            tick_mid_prices: Vec::new(),
         }
     }
 
@@ -147,9 +192,8 @@ impl BookBuilder {
                 break;
             }
             if cs.has_bid && cs.has_ask {
-                let (mid, sprd) = compute_mid_spread(&cs.bid_levels, &cs.ask_levels);
-                carry_mid = mid;
-                carry_spread = sprd;
+                carry_mid = cs.mid;
+                carry_spread = cs.spread;
                 both_sides_seen = true;
             }
         }
@@ -160,7 +204,7 @@ impl BookBuilder {
         let mut ts = aligned_start;
         while ts < eff_end {
             if let Some(state) = self.get_committed_state_at(ts) {
-                let state = state.clone(); // clone to avoid borrow issues
+                let state = *state; // Copy (CommittedState is Copy now)
 
                 if state.has_bid && state.has_ask {
                     self.ever_had_both_sides = true;
@@ -174,35 +218,24 @@ impl BookBuilder {
                 let mut snap = BookSnapshot::default();
                 snap.timestamp = ts;
 
-                // Fill bids (descending by price)
-                let mut bid_idx = 0;
-                for (&price, &size) in state.bid_levels.iter().rev() {
-                    if bid_idx >= BOOK_DEPTH {
-                        break;
-                    }
-                    snap.bids[bid_idx][0] = fixed_to_float(price);
-                    snap.bids[bid_idx][1] = size as f32;
-                    bid_idx += 1;
+                // Fill bids from compact snapshot (already descending by price)
+                for i in 0..(state.n_bids as usize) {
+                    snap.bids[i][0] = state.bids[i][0];
+                    snap.bids[i][1] = state.bids[i][1];
                 }
 
-                // Fill asks (ascending by price)
-                let mut ask_idx = 0;
-                for (&price, &size) in state.ask_levels.iter() {
-                    if ask_idx >= BOOK_DEPTH {
-                        break;
-                    }
-                    snap.asks[ask_idx][0] = fixed_to_float(price);
-                    snap.asks[ask_idx][1] = size as f32;
-                    ask_idx += 1;
+                // Fill asks from compact snapshot (already ascending by price)
+                for i in 0..(state.n_asks as usize) {
+                    snap.asks[i][0] = state.asks[i][0];
+                    snap.asks[i][1] = state.asks[i][1];
                 }
 
-                // Mid price and spread
+                // Mid price and spread (precomputed at commit time)
                 if state.has_bid && state.has_ask {
-                    let (mid, sprd) = compute_mid_spread(&state.bid_levels, &state.ask_levels);
-                    snap.mid_price = mid;
-                    snap.spread = sprd;
-                    self.last_mid_price = mid;
-                    self.last_spread = sprd;
+                    snap.mid_price = state.mid;
+                    snap.spread = state.spread;
+                    self.last_mid_price = state.mid;
+                    self.last_spread = state.spread;
                 } else if self.ever_had_both_sides {
                     snap.mid_price = self.last_mid_price;
                     snap.spread = self.last_spread;
@@ -234,6 +267,11 @@ impl BookBuilder {
     /// Returns None if there are no ask levels.
     pub fn best_ask_price(&self) -> Option<i64> {
         self.ask_levels.keys().next().copied()
+    }
+
+    /// Take the tick-level mid-price series (moves data out, leaving Vec empty).
+    pub fn take_tick_mid_prices(&mut self) -> Vec<(u64, f32)> {
+        std::mem::take(&mut self.tick_mid_prices)
     }
 
     // --- Private methods ---
@@ -322,13 +360,36 @@ impl BookBuilder {
     }
 
     fn commit(&mut self, ts: u64) {
+        let has_bid = !self.bid_levels.is_empty();
+        let has_ask = !self.ask_levels.is_empty();
+
+        // Snapshot top BOOK_DEPTH levels into compact fixed-size arrays
+        let (bids, n_bids) = snapshot_bids(&self.bid_levels);
+        let (asks, n_asks) = snapshot_asks(&self.ask_levels);
+
+        // Precompute mid/spread
+        let (mid, spread) = if has_bid && has_ask {
+            compute_mid_spread_from_levels(&self.bid_levels, &self.ask_levels)
+        } else {
+            (0.0, 0.0)
+        };
+
         self.committed_states.push(CommittedState {
             ts,
-            bid_levels: self.bid_levels.clone(),
-            ask_levels: self.ask_levels.clone(),
-            has_bid: !self.bid_levels.is_empty(),
-            has_ask: !self.ask_levels.is_empty(),
+            has_bid,
+            has_ask,
+            bids,
+            asks,
+            mid,
+            spread,
+            n_bids,
+            n_asks,
         });
+
+        // Record tick-level mid price when both sides are quoted
+        if has_bid && has_ask {
+            self.tick_mid_prices.push((ts, mid));
+        }
     }
 
     fn get_committed_state_at(&self, ts: u64) -> Option<&CommittedState> {
@@ -373,8 +434,12 @@ mod tests {
         let cs = &bb.committed_states[0];
         assert!(cs.has_bid);
         assert!(cs.has_ask);
-        assert_eq!(*cs.bid_levels.get(&4500_000_000_000).unwrap(), 10);
-        assert_eq!(*cs.ask_levels.get(&4501_000_000_000).unwrap(), 5);
+        // Check compact snapshot: best bid at index 0
+        assert!((cs.bids[0][0] - 4500.0).abs() < 0.01);
+        assert!((cs.bids[0][1] - 10.0).abs() < 0.01);
+        // Check compact snapshot: best ask at index 0
+        assert!((cs.asks[0][0] - 4501.0).abs() < 0.01);
+        assert!((cs.asks[0][1] - 5.0).abs() < 0.01);
     }
 
     #[test]
@@ -384,7 +449,7 @@ mod tests {
         bb.process_event(2000, 100, 1, 'C', 'B', 4500_000_000_000, 0, F_LAST);
 
         let cs = bb.committed_states.last().unwrap();
-        assert!(cs.bid_levels.is_empty());
+        assert!(!cs.has_bid);
     }
 
     #[test]
@@ -394,8 +459,9 @@ mod tests {
         bb.process_event(2000, 100, 1, 'M', 'B', 4501_000_000_000, 15, F_LAST);
 
         let cs = bb.committed_states.last().unwrap();
-        assert!(cs.bid_levels.get(&4500_000_000_000).is_none());
-        assert_eq!(*cs.bid_levels.get(&4501_000_000_000).unwrap(), 15);
+        // After modify: bid moved to 4501.0 with size 15
+        assert!((cs.bids[0][0] - 4501.0).abs() < 0.01);
+        assert!((cs.bids[0][1] - 15.0).abs() < 0.01);
     }
 
     #[test]
@@ -413,7 +479,7 @@ mod tests {
         bb.process_event(2000, 100, 1, 'F', 'B', 4500_000_000_000, 7, F_LAST);
 
         let cs = bb.committed_states.last().unwrap();
-        assert_eq!(*cs.bid_levels.get(&4500_000_000_000).unwrap(), 7);
+        assert!((cs.bids[0][1] - 7.0).abs() < 0.01);
     }
 
     #[test]
@@ -423,7 +489,7 @@ mod tests {
         bb.process_event(2000, 100, 1, 'F', 'B', 4500_000_000_000, 0, F_LAST);
 
         let cs = bb.committed_states.last().unwrap();
-        assert!(cs.bid_levels.is_empty());
+        assert!(!cs.has_bid);
     }
 
     #[test]
@@ -434,8 +500,8 @@ mod tests {
         bb.process_event(2000, 0, 1, 'R', ' ', 0, 0, F_LAST);
 
         let cs = bb.committed_states.last().unwrap();
-        assert!(cs.bid_levels.is_empty());
-        assert!(cs.ask_levels.is_empty());
+        assert!(!cs.has_bid);
+        assert!(!cs.has_ask);
     }
 
     #[test]
@@ -454,14 +520,58 @@ mod tests {
     }
 
     #[test]
+    fn test_tick_mid_prices_tracked() {
+        let mut bb = make_builder();
+        // Add bid + ask with F_LAST → should record tick mid
+        bb.process_event(1000, 100, 1, 'A', 'B', 4500_000_000_000, 10, 0);
+        bb.process_event(1000, 101, 1, 'A', 'A', 4500_250_000_000, 5, F_LAST);
+
+        assert_eq!(bb.tick_mid_prices.len(), 1);
+        assert_eq!(bb.tick_mid_prices[0].0, 1000);
+        assert!((bb.tick_mid_prices[0].1 - 4500.125).abs() < 0.01);
+
+        // Another commit with both sides → should add another entry
+        bb.process_event(2000, 102, 1, 'A', 'B', 4501_000_000_000, 8, F_LAST);
+        assert_eq!(bb.tick_mid_prices.len(), 2);
+    }
+
+    #[test]
+    fn test_tick_mid_prices_skip_one_sided() {
+        let mut bb = make_builder();
+        // Only bid, no ask → should NOT record tick mid
+        bb.process_event(1000, 100, 1, 'A', 'B', 4500_000_000_000, 10, F_LAST);
+        assert!(bb.tick_mid_prices.is_empty());
+    }
+
+    #[test]
+    fn test_take_tick_mid_prices() {
+        let mut bb = make_builder();
+        bb.process_event(1000, 100, 1, 'A', 'B', 4500_000_000_000, 10, 0);
+        bb.process_event(1000, 101, 1, 'A', 'A', 4500_250_000_000, 5, F_LAST);
+
+        let ticks = bb.take_tick_mid_prices();
+        assert_eq!(ticks.len(), 1);
+        // After take, internal vec should be empty
+        assert!(bb.tick_mid_prices.is_empty());
+    }
+
+    #[test]
     fn test_mid_spread_computation() {
         let mut bids = BTreeMap::new();
         let mut asks = BTreeMap::new();
         bids.insert(4500_000_000_000i64, 10u32); // 4500.00
         asks.insert(4500_250_000_000i64, 5u32); // 4500.25
 
-        let (mid, spread) = compute_mid_spread(&bids, &asks);
+        let (mid, spread) = compute_mid_spread_from_levels(&bids, &asks);
         assert!((mid - 4500.125).abs() < 0.01);
         assert!((spread - 0.25).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_compact_committed_state_size() {
+        // Verify that CommittedState is now compact (no heap allocations)
+        let size = std::mem::size_of::<CommittedState>();
+        // Should be ~188 bytes: 8 (ts) + 2 (bools) + 160 (bids+asks) + 8 (mid+spread) + 2 (counts) + padding
+        assert!(size < 256, "CommittedState should be compact, got {} bytes", size);
     }
 }

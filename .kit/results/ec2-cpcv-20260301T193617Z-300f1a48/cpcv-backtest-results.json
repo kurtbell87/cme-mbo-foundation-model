@@ -1,0 +1,4421 @@
+{
+  "n_folds": 45,
+  "n_dev_days": 312,
+  "target_ticks": 19,
+  "stop_ticks": 7,
+  "base": {
+    "mean_expectancy": 11.222118291020042,
+    "std_expectancy": 0.5859075519824042,
+    "ci_95": [
+      11.046124279936858,
+      11.398112302103225
+    ],
+    "negative_fold_fraction": 0.0,
+    "annualized_sharpe": 46.03821403885009,
+    "deflated_sharpe": 1.0,
+    "pooled_profit_factor": null,
+    "pooled_win_rate": 0.6911433174813313,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0,
+          1
+        ],
+        "n_train_bars": 663261,
+        "n_test_bars": 207897,
+        "expectancy": 11.63437219376025,
+        "win_rate": 0.7051265139412061,
+        "profit_factor": 4.2845848465487295,
+        "annualized_sharpe": 70.97194278603185,
+        "total_trades": 204681,
+        "stage1_best_iter": 399,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 1,
+        "test_groups": [
+          0,
+          2
+        ],
+        "n_train_bars": 656685,
+        "n_test_bars": 206653,
+        "expectancy": 10.321571530033621,
+        "win_rate": 0.6763136452164236,
+        "profit_factor": 3.5387644246237286,
+        "annualized_sharpe": 29.66809434247418,
+        "total_trades": 201272,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 2,
+        "test_groups": [
+          0,
+          3
+        ],
+        "n_train_bars": 659927,
+        "n_test_bars": 206653,
+        "expectancy": 11.533882962387189,
+        "win_rate": 0.7004219617763899,
+        "profit_factor": 4.426021443537648,
+        "annualized_sharpe": 114.28130278675772,
+        "total_trades": 202388,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 3,
+        "test_groups": [
+          0,
+          4
+        ],
+        "n_train_bars": 659922,
+        "n_test_bars": 203416,
+        "expectancy": 11.030342401130138,
+        "win_rate": 0.6870983282254179,
+        "profit_factor": 3.9086688214470966,
+        "annualized_sharpe": 58.47101913448105,
+        "total_trades": 195122,
+        "stage1_best_iter": 539,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 4,
+        "test_groups": [
+          0,
+          5
+        ],
+        "n_train_bars": 659925,
+        "n_test_bars": 206657,
+        "expectancy": 11.453614839631665,
+        "win_rate": 0.6993885160328114,
+        "profit_factor": 4.36749924024025,
+        "annualized_sharpe": 73.72976942674256,
+        "total_trades": 201150,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 5,
+        "test_groups": [
+          0,
+          6
+        ],
+        "n_train_bars": 656691,
+        "n_test_bars": 206647,
+        "expectancy": 11.45777079961348,
+        "win_rate": 0.6902872777017783,
+        "profit_factor": 4.23193446911652,
+        "annualized_sharpe": 55.44604234635965,
+        "total_trades": 201025,
+        "stage1_best_iter": 469,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 6,
+        "test_groups": [
+          0,
+          7
+        ],
+        "n_train_bars": 656671,
+        "n_test_bars": 206667,
+        "expectancy": 11.377920391107393,
+        "win_rate": 0.6980783389416781,
+        "profit_factor": 4.04321127749594,
+        "annualized_sharpe": 68.42637448409606,
+        "total_trades": 202377,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 7,
+        "test_groups": [
+          0,
+          8
+        ],
+        "n_train_bars": 656001,
+        "n_test_bars": 204658,
+        "expectancy": 11.347485824664652,
+        "win_rate": 0.6939379470192087,
+        "profit_factor": 4.313575083822855,
+        "annualized_sharpe": 87.10801433260944,
+        "total_trades": 201054,
+        "stage1_best_iter": 799,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 8,
+        "test_groups": [
+          0,
+          9
+        ],
+        "n_train_bars": 660580,
+        "n_test_bars": 201340,
+        "expectancy": 12.051782959600102,
+        "win_rate": 0.7043325952952671,
+        "profit_factor": 4.458799094648715,
+        "annualized_sharpe": 64.33492095758191,
+        "total_trades": 192402,
+        "stage1_best_iter": 899,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 9,
+        "test_groups": [
+          1,
+          2
+        ],
+        "n_train_bars": 656018,
+        "n_test_bars": 211230,
+        "expectancy": 10.555178744678118,
+        "win_rate": 0.6866943744670005,
+        "profit_factor": 3.5021614217148427,
+        "annualized_sharpe": 28.30340331259238,
+        "total_trades": 204034,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 10,
+        "test_groups": [
+          1,
+          3
+        ],
+        "n_train_bars": 651440,
+        "n_test_bars": 211230,
+        "expectancy": 11.6411065831777,
+        "win_rate": 0.7056372192305826,
+        "profit_factor": 4.2925575434923084,
+        "annualized_sharpe": 70.33713904713042,
+        "total_trades": 206130,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 11,
+        "test_groups": [
+          1,
+          4
+        ],
+        "n_train_bars": 655345,
+        "n_test_bars": 207993,
+        "expectancy": 11.106904261163573,
+        "win_rate": 0.6907176423100497,
+        "profit_factor": 3.8193210352930276,
+        "annualized_sharpe": 46.686424249786825,
+        "total_trades": 200671,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 12,
+        "test_groups": [
+          1,
+          5
+        ],
+        "n_train_bars": 655348,
+        "n_test_bars": 211234,
+        "expectancy": 11.623970283315938,
+        "win_rate": 0.7062677131554173,
+        "profit_factor": 4.280184818631497,
+        "annualized_sharpe": 60.947771157232914,
+        "total_trades": 205003,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 13,
+        "test_groups": [
+          1,
+          6
+        ],
+        "n_train_bars": 652114,
+        "n_test_bars": 211224,
+        "expectancy": 11.675247319643685,
+        "win_rate": 0.6988840155945419,
+        "profit_factor": 4.186669450349158,
+        "annualized_sharpe": 49.155857530072055,
+        "total_trades": 205200,
+        "stage1_best_iter": 409,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 14,
+        "test_groups": [
+          1,
+          7
+        ],
+        "n_train_bars": 652094,
+        "n_test_bars": 211244,
+        "expectancy": 11.531889277809945,
+        "win_rate": 0.7046810742048097,
+        "profit_factor": 3.9676364371886557,
+        "annualized_sharpe": 54.66642433611446,
+        "total_trades": 205957,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 15,
+        "test_groups": [
+          1,
+          8
+        ],
+        "n_train_bars": 647514,
+        "n_test_bars": 209235,
+        "expectancy": 11.504753881863294,
+        "win_rate": 0.7006825921937958,
+        "profit_factor": 4.217323132499614,
+        "annualized_sharpe": 62.95125058265236,
+        "total_trades": 205247,
+        "stage1_best_iter": 719,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 16,
+        "test_groups": [
+          1,
+          9
+        ],
+        "n_train_bars": 652093,
+        "n_test_bars": 205917,
+        "expectancy": 12.18219767390226,
+        "win_rate": 0.7110981999062239,
+        "profit_factor": 4.3376293450930765,
+        "annualized_sharpe": 53.51063601927133,
+        "total_trades": 196212,
+        "stage1_best_iter": 829,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 17,
+        "test_groups": [
+          2,
+          3
+        ],
+        "n_train_bars": 656594,
+        "n_test_bars": 209986,
+        "expectancy": 10.394779911308927,
+        "win_rate": 0.682379899336582,
+        "profit_factor": 3.5301486976607395,
+        "annualized_sharpe": 29.654180031578992,
+        "total_trades": 199874,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 18,
+        "test_groups": [
+          2,
+          4
+        ],
+        "n_train_bars": 652679,
+        "n_test_bars": 206749,
+        "expectancy": 9.825547976688302,
+        "win_rate": 0.6666546048550515,
+        "profit_factor": 3.160035037032839,
+        "annualized_sharpe": 26.6862224870346,
+        "total_trades": 193448,
+        "stage1_best_iter": 509,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 19,
+        "test_groups": [
+          2,
+          5
+        ],
+        "n_train_bars": 652682,
+        "n_test_bars": 209990,
+        "expectancy": 10.294302470641927,
+        "win_rate": 0.6786174195158473,
+        "profit_factor": 3.5055595249653133,
+        "annualized_sharpe": 28.34243333176975,
+        "total_trades": 200350,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 20,
+        "test_groups": [
+          2,
+          6
+        ],
+        "n_train_bars": 649448,
+        "n_test_bars": 209980,
+        "expectancy": 10.41684257733992,
+        "win_rate": 0.6748065667094291,
+        "profit_factor": 3.4605085517717296,
+        "annualized_sharpe": 26.513651451239994,
+        "total_trades": 199552,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 21,
+        "test_groups": [
+          2,
+          7
+        ],
+        "n_train_bars": 649428,
+        "n_test_bars": 210000,
+        "expectancy": 10.106305925112515,
+        "win_rate": 0.6725697396255511,
+        "profit_factor": 3.2682171815841197,
+        "annualized_sharpe": 27.002388917662746,
+        "total_trades": 202324,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 22,
+        "test_groups": [
+          2,
+          8
+        ],
+        "n_train_bars": 648758,
+        "n_test_bars": 207991,
+        "expectancy": 10.108997031886187,
+        "win_rate": 0.6692575331179241,
+        "profit_factor": 3.4498284114218865,
+        "annualized_sharpe": 28.17932604241795,
+        "total_trades": 201477,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 319
+      },
+      {
+        "split_idx": 23,
+        "test_groups": [
+          2,
+          9
+        ],
+        "n_train_bars": 653337,
+        "n_test_bars": 204673,
+        "expectancy": 10.713414777524603,
+        "win_rate": 0.6765525601442218,
+        "profit_factor": 3.531990829621732,
+        "annualized_sharpe": 26.782692145647708,
+        "total_trades": 193036,
+        "stage1_best_iter": 709,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 24,
+        "test_groups": [
+          3,
+          4
+        ],
+        "n_train_bars": 660499,
+        "n_test_bars": 206749,
+        "expectancy": 10.873112422914385,
+        "win_rate": 0.6811829835944345,
+        "profit_factor": 3.856994072496288,
+        "annualized_sharpe": 56.508332610355026,
+        "total_trades": 197433,
+        "stage1_best_iter": 489,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 25,
+        "test_groups": [
+          3,
+          5
+        ],
+        "n_train_bars": 655924,
+        "n_test_bars": 209990,
+        "expectancy": 11.38549541321233,
+        "win_rate": 0.6969975854015754,
+        "profit_factor": 4.325883056080284,
+        "annualized_sharpe": 73.9965024553322,
+        "total_trades": 202104,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 26,
+        "test_groups": [
+          3,
+          6
+        ],
+        "n_train_bars": 652690,
+        "n_test_bars": 209980,
+        "expectancy": 11.462644373845158,
+        "win_rate": 0.690509029569359,
+        "profit_factor": 4.232555976249176,
+        "annualized_sharpe": 53.48905939386256,
+        "total_trades": 201560,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 27,
+        "test_groups": [
+          3,
+          7
+        ],
+        "n_train_bars": 652670,
+        "n_test_bars": 210000,
+        "expectancy": 11.31032707058382,
+        "win_rate": 0.6962817233916978,
+        "profit_factor": 4.010086469618121,
+        "annualized_sharpe": 66.56463667512072,
+        "total_trades": 203320,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 28,
+        "test_groups": [
+          3,
+          8
+        ],
+        "n_train_bars": 648090,
+        "n_test_bars": 207991,
+        "expectancy": 11.299356602914761,
+        "win_rate": 0.6924788585074155,
+        "profit_factor": 4.292506156090057,
+        "annualized_sharpe": 84.53114044255835,
+        "total_trades": 202682,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 29,
+        "test_groups": [
+          3,
+          9
+        ],
+        "n_train_bars": 652669,
+        "n_test_bars": 204673,
+        "expectancy": 12.003525682735177,
+        "win_rate": 0.7035136140916702,
+        "profit_factor": 4.432310788892247,
+        "annualized_sharpe": 63.215282431953945,
+        "total_trades": 193476,
+        "stage1_best_iter": 869,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 30,
+        "test_groups": [
+          4,
+          5
+        ],
+        "n_train_bars": 660495,
+        "n_test_bars": 206753,
+        "expectancy": 10.77156863041023,
+        "win_rate": 0.6789797310366592,
+        "profit_factor": 3.7992033009283936,
+        "annualized_sharpe": 47.200338028435255,
+        "total_trades": 196458,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 31,
+        "test_groups": [
+          4,
+          6
+        ],
+        "n_train_bars": 652685,
+        "n_test_bars": 206743,
+        "expectancy": 10.908021674562761,
+        "win_rate": 0.6748001193468289,
+        "profit_factor": 3.778471523146376,
+        "annualized_sharpe": 45.277977144206424,
+        "total_trades": 197743,
+        "stage1_best_iter": 569,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 32,
+        "test_groups": [
+          4,
+          7
+        ],
+        "n_train_bars": 652665,
+        "n_test_bars": 206763,
+        "expectancy": 10.77217079764499,
+        "win_rate": 0.6804299702647802,
+        "profit_factor": 3.5855830271502573,
+        "annualized_sharpe": 46.436357434857506,
+        "total_trades": 197409,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 179
+      },
+      {
+        "split_idx": 33,
+        "test_groups": [
+          4,
+          8
+        ],
+        "n_train_bars": 651995,
+        "n_test_bars": 204754,
+        "expectancy": 10.750077884194946,
+        "win_rate": 0.6765367411491732,
+        "profit_factor": 3.8031813176581553,
+        "annualized_sharpe": 51.707744735920585,
+        "total_trades": 196959,
+        "stage1_best_iter": 789,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 34,
+        "test_groups": [
+          4,
+          9
+        ],
+        "n_train_bars": 656574,
+        "n_test_bars": 201436,
+        "expectancy": 11.425904073177367,
+        "win_rate": 0.6872940197741016,
+        "profit_factor": 3.90450073553263,
+        "annualized_sharpe": 44.77616075200374,
+        "total_trades": 187518,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 35,
+        "test_groups": [
+          5,
+          6
+        ],
+        "n_train_bars": 660508,
+        "n_test_bars": 209984,
+        "expectancy": 11.567101050225798,
+        "win_rate": 0.6939821440066551,
+        "profit_factor": 4.319710480171253,
+        "annualized_sharpe": 54.752261104900796,
+        "total_trades": 201949,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 36,
+        "test_groups": [
+          5,
+          7
+        ],
+        "n_train_bars": 652668,
+        "n_test_bars": 210004,
+        "expectancy": 11.347114772526556,
+        "win_rate": 0.69867258386542,
+        "profit_factor": 4.0322624843695785,
+        "annualized_sharpe": 59.44298299097362,
+        "total_trades": 202348,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 37,
+        "test_groups": [
+          5,
+          8
+        ],
+        "n_train_bars": 651998,
+        "n_test_bars": 207995,
+        "expectancy": 11.325474007365148,
+        "win_rate": 0.6942989259995341,
+        "profit_factor": 4.303179636778267,
+        "annualized_sharpe": 70.55719371962276,
+        "total_trades": 201769,
+        "stage1_best_iter": 649,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 38,
+        "test_groups": [
+          5,
+          9
+        ],
+        "n_train_bars": 656577,
+        "n_test_bars": 204677,
+        "expectancy": 12.034486658007356,
+        "win_rate": 0.7057341582126921,
+        "profit_factor": 4.45040177389616,
+        "annualized_sharpe": 57.34342364401148,
+        "total_trades": 192513,
+        "stage1_best_iter": 729,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 39,
+        "test_groups": [
+          6,
+          7
+        ],
+        "n_train_bars": 657254,
+        "n_test_bars": 209994,
+        "expectancy": 11.397074085219439,
+        "win_rate": 0.6904090861810203,
+        "profit_factor": 3.9387547865269625,
+        "annualized_sharpe": 45.99744190599722,
+        "total_trades": 201889,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 40,
+        "test_groups": [
+          6,
+          8
+        ],
+        "n_train_bars": 648764,
+        "n_test_bars": 207985,
+        "expectancy": 11.388380661728746,
+        "win_rate": 0.6870309813237384,
+        "profit_factor": 4.207500174954136,
+        "annualized_sharpe": 52.19221602006303,
+        "total_trades": 201218,
+        "stage1_best_iter": 749,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 41,
+        "test_groups": [
+          6,
+          9
+        ],
+        "n_train_bars": 653343,
+        "n_test_bars": 204667,
+        "expectancy": 12.12425793946267,
+        "win_rate": 0.6985408484407106,
+        "profit_factor": 4.372548556982523,
+        "annualized_sharpe": 47.5224505241069,
+        "total_trades": 192235,
+        "stage1_best_iter": 959,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 42,
+        "test_groups": [
+          7,
+          8
+        ],
+        "n_train_bars": 652673,
+        "n_test_bars": 208005,
+        "expectancy": 11.18212519178482,
+        "win_rate": 0.6913109342386397,
+        "profit_factor": 3.9501886878039563,
+        "annualized_sharpe": 59.377753325032046,
+        "total_trades": 202657,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 339
+      },
+      {
+        "split_idx": 43,
+        "test_groups": [
+          7,
+          9
+        ],
+        "n_train_bars": 656583,
+        "n_test_bars": 204687,
+        "expectancy": 11.911269374350693,
+        "win_rate": 0.7023845800257206,
+        "profit_factor": 4.082158259920252,
+        "annualized_sharpe": 50.883444608147656,
+        "total_trades": 193619,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 44,
+        "test_groups": [
+          8,
+          9
+        ],
+        "n_train_bars": 661158,
+        "n_test_bars": 202678,
+        "expectancy": 11.865652131049387,
+        "win_rate": 0.6977805197969754,
+        "profit_factor": 4.356438403840977,
+        "annualized_sharpe": 56.78385482857199,
+        "total_trades": 192883,
+        "stage1_best_iter": 619,
+        "stage2_best_iter": 289
+      }
+    ]
+  },
+  "optimistic": {
+    "mean_expectancy": 12.472118291013658,
+    "std_expectancy": 0.5859075519823211,
+    "ci_95": [
+      12.296124279930499,
+      12.648112302096816
+    ],
+    "negative_fold_fraction": 0.0,
+    "annualized_sharpe": 50.683876468445455,
+    "deflated_sharpe": 1.0,
+    "pooled_profit_factor": null,
+    "pooled_win_rate": 0.6914683830067013,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0,
+          1
+        ],
+        "n_train_bars": 663261,
+        "n_test_bars": 207897,
+        "expectancy": 12.884372193753945,
+        "win_rate": 0.7052535408758018,
+        "profit_factor": 5.059915855280537,
+        "annualized_sharpe": 78.30694293090136,
+        "total_trades": 204681,
+        "stage1_best_iter": 399,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 1,
+        "test_groups": [
+          0,
+          2
+        ],
+        "n_train_bars": 656685,
+        "n_test_bars": 206653,
+        "expectancy": 11.571571530027216,
+        "win_rate": 0.6764577288445487,
+        "profit_factor": 4.160767397270608,
+        "annualized_sharpe": 33.16845167018208,
+        "total_trades": 201272,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 2,
+        "test_groups": [
+          0,
+          3
+        ],
+        "n_train_bars": 659927,
+        "n_test_bars": 206653,
+        "expectancy": 12.783882962380828,
+        "win_rate": 0.7004713718204637,
+        "profit_factor": 5.272563664509519,
+        "annualized_sharpe": 126.42948447739442,
+        "total_trades": 202388,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 3,
+        "test_groups": [
+          0,
+          4
+        ],
+        "n_train_bars": 659922,
+        "n_test_bars": 203416,
+        "expectancy": 12.280342401123532,
+        "win_rate": 0.6872418281895429,
+        "profit_factor": 4.610661576677793,
+        "annualized_sharpe": 63.83963634751007,
+        "total_trades": 195122,
+        "stage1_best_iter": 539,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 4,
+        "test_groups": [
+          0,
+          5
+        ],
+        "n_train_bars": 659925,
+        "n_test_bars": 206657,
+        "expectancy": 12.703614839625246,
+        "win_rate": 0.699537658463833,
+        "profit_factor": 5.19887794599964,
+        "annualized_sharpe": 80.33700835790022,
+        "total_trades": 201150,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 5,
+        "test_groups": [
+          0,
+          6
+        ],
+        "n_train_bars": 656691,
+        "n_test_bars": 206647,
+        "expectancy": 12.707770799607065,
+        "win_rate": 0.6903917423206068,
+        "profit_factor": 5.023929679673484,
+        "annualized_sharpe": 60.94659097531485,
+        "total_trades": 201025,
+        "stage1_best_iter": 469,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 6,
+        "test_groups": [
+          0,
+          7
+        ],
+        "n_train_bars": 656671,
+        "n_test_bars": 206667,
+        "expectancy": 12.627920391101194,
+        "win_rate": 0.698177164401093,
+        "profit_factor": 4.75674567092016,
+        "annualized_sharpe": 75.78862069016199,
+        "total_trades": 202377,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 7,
+        "test_groups": [
+          0,
+          8
+        ],
+        "n_train_bars": 656001,
+        "n_test_bars": 204658,
+        "expectancy": 12.597485824658023,
+        "win_rate": 0.6949874163160146,
+        "profit_factor": 5.141143928915907,
+        "annualized_sharpe": 95.09427448153082,
+        "total_trades": 201054,
+        "stage1_best_iter": 799,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 8,
+        "test_groups": [
+          0,
+          9
+        ],
+        "n_train_bars": 660580,
+        "n_test_bars": 201340,
+        "expectancy": 13.30178295959338,
+        "win_rate": 0.7046028627561044,
+        "profit_factor": 5.270466554060187,
+        "annualized_sharpe": 67.93033662386974,
+        "total_trades": 192402,
+        "stage1_best_iter": 899,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 9,
+        "test_groups": [
+          1,
+          2
+        ],
+        "n_train_bars": 656018,
+        "n_test_bars": 211230,
+        "expectancy": 11.805178744671904,
+        "win_rate": 0.6868365076408833,
+        "profit_factor": 4.084842458533448,
+        "annualized_sharpe": 31.52543253864482,
+        "total_trades": 204034,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 10,
+        "test_groups": [
+          1,
+          3
+        ],
+        "n_train_bars": 651440,
+        "n_test_bars": 211230,
+        "expectancy": 12.89110658317156,
+        "win_rate": 0.7057002862271382,
+        "profit_factor": 5.069603998221755,
+        "annualized_sharpe": 77.93947769176572,
+        "total_trades": 206130,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 11,
+        "test_groups": [
+          1,
+          4
+        ],
+        "n_train_bars": 655345,
+        "n_test_bars": 207993,
+        "expectancy": 12.35690426115727,
+        "win_rate": 0.690857174180624,
+        "profit_factor": 4.477864039724717,
+        "annualized_sharpe": 51.60151881828268,
+        "total_trades": 200671,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 12,
+        "test_groups": [
+          1,
+          5
+        ],
+        "n_train_bars": 655348,
+        "n_test_bars": 211234,
+        "expectancy": 12.873970283309742,
+        "win_rate": 0.7064433203416536,
+        "profit_factor": 5.052762846174065,
+        "annualized_sharpe": 67.08615362749539,
+        "total_trades": 205003,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 13,
+        "test_groups": [
+          1,
+          6
+        ],
+        "n_train_bars": 652114,
+        "n_test_bars": 211224,
+        "expectancy": 12.925247319637517,
+        "win_rate": 0.6989912280701754,
+        "profit_factor": 4.931729866061393,
+        "annualized_sharpe": 54.29385722506222,
+        "total_trades": 205200,
+        "stage1_best_iter": 409,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 14,
+        "test_groups": [
+          1,
+          7
+        ],
+        "n_train_bars": 652094,
+        "n_test_bars": 211244,
+        "expectancy": 12.781889277803959,
+        "win_rate": 0.7047781818534937,
+        "profit_factor": 4.634554558504072,
+        "annualized_sharpe": 60.59472537639212,
+        "total_trades": 205957,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 15,
+        "test_groups": [
+          1,
+          8
+        ],
+        "n_train_bars": 647514,
+        "n_test_bars": 209235,
+        "expectancy": 12.75475388185691,
+        "win_rate": 0.701666772230532,
+        "profit_factor": 4.983610191473279,
+        "annualized_sharpe": 69.49338415364114,
+        "total_trades": 205247,
+        "stage1_best_iter": 719,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 16,
+        "test_groups": [
+          1,
+          9
+        ],
+        "n_train_bars": 652093,
+        "n_test_bars": 205917,
+        "expectancy": 13.432197673895775,
+        "win_rate": 0.7113632193749618,
+        "profit_factor": 5.084123218394126,
+        "annualized_sharpe": 57.37103834500263,
+        "total_trades": 196212,
+        "stage1_best_iter": 829,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 17,
+        "test_groups": [
+          2,
+          3
+        ],
+        "n_train_bars": 656594,
+        "n_test_bars": 209986,
+        "expectancy": 11.644779911302564,
+        "win_rate": 0.6824599497683541,
+        "profit_factor": 4.137608426708491,
+        "annualized_sharpe": 32.95821113974303,
+        "total_trades": 199874,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 18,
+        "test_groups": [
+          2,
+          4
+        ],
+        "n_train_bars": 652679,
+        "n_test_bars": 206749,
+        "expectancy": 11.075547976682712,
+        "win_rate": 0.6668148546379389,
+        "profit_factor": 3.680337737350031,
+        "annualized_sharpe": 29.999267612820486,
+        "total_trades": 193448,
+        "stage1_best_iter": 509,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 19,
+        "test_groups": [
+          2,
+          5
+        ],
+        "n_train_bars": 652682,
+        "n_test_bars": 209990,
+        "expectancy": 11.544302470635559,
+        "win_rate": 0.6788420264537061,
+        "profit_factor": 4.114267150596041,
+        "annualized_sharpe": 31.5906708966033,
+        "total_trades": 200350,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 20,
+        "test_groups": [
+          2,
+          6
+        ],
+        "n_train_bars": 649448,
+        "n_test_bars": 209980,
+        "expectancy": 11.666842577333675,
+        "win_rate": 0.6749368585631815,
+        "profit_factor": 4.048445338112371,
+        "annualized_sharpe": 29.50886290791793,
+        "total_trades": 199552,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 21,
+        "test_groups": [
+          2,
+          7
+        ],
+        "n_train_bars": 649428,
+        "n_test_bars": 210000,
+        "expectancy": 11.356305925106385,
+        "win_rate": 0.6726834186749966,
+        "profit_factor": 3.80655665872516,
+        "annualized_sharpe": 30.276988990048512,
+        "total_trades": 202324,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 22,
+        "test_groups": [
+          2,
+          8
+        ],
+        "n_train_bars": 648758,
+        "n_test_bars": 207991,
+        "expectancy": 11.358997031879655,
+        "win_rate": 0.6702750189847972,
+        "profit_factor": 4.059213352264163,
+        "annualized_sharpe": 31.55426263842724,
+        "total_trades": 201477,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 319
+      },
+      {
+        "split_idx": 23,
+        "test_groups": [
+          2,
+          9
+        ],
+        "n_train_bars": 653337,
+        "n_test_bars": 204673,
+        "expectancy": 11.96341477751798,
+        "win_rate": 0.6768374810916099,
+        "profit_factor": 4.126095659678786,
+        "annualized_sharpe": 29.621588038009847,
+        "total_trades": 193036,
+        "stage1_best_iter": 709,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 24,
+        "test_groups": [
+          3,
+          4
+        ],
+        "n_train_bars": 660499,
+        "n_test_bars": 206749,
+        "expectancy": 12.123112422907852,
+        "win_rate": 0.6812589587353685,
+        "profit_factor": 4.557993400800127,
+        "annualized_sharpe": 62.316199872562564,
+        "total_trades": 197433,
+        "stage1_best_iter": 489,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 25,
+        "test_groups": [
+          3,
+          5
+        ],
+        "n_train_bars": 655924,
+        "n_test_bars": 209990,
+        "expectancy": 12.635495413205948,
+        "win_rate": 0.6970817005106282,
+        "profit_factor": 5.15018744215458,
+        "annualized_sharpe": 80.94566299932845,
+        "total_trades": 202104,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 26,
+        "test_groups": [
+          3,
+          6
+        ],
+        "n_train_bars": 652690,
+        "n_test_bars": 209980,
+        "expectancy": 12.712644373838756,
+        "win_rate": 0.6905487199841238,
+        "profit_factor": 5.024075915102919,
+        "annualized_sharpe": 58.791844101905454,
+        "total_trades": 201560,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 27,
+        "test_groups": [
+          3,
+          7
+        ],
+        "n_train_bars": 652670,
+        "n_test_bars": 210000,
+        "expectancy": 12.560327070577646,
+        "win_rate": 0.6963161518788117,
+        "profit_factor": 4.71845549666454,
+        "annualized_sharpe": 73.9212582232265,
+        "total_trades": 203320,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 28,
+        "test_groups": [
+          3,
+          8
+        ],
+        "n_train_bars": 648090,
+        "n_test_bars": 207991,
+        "expectancy": 12.549356602908187,
+        "win_rate": 0.6934113537462626,
+        "profit_factor": 5.117933791936183,
+        "annualized_sharpe": 93.2396619676407,
+        "total_trades": 202682,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 29,
+        "test_groups": [
+          3,
+          9
+        ],
+        "n_train_bars": 652669,
+        "n_test_bars": 204673,
+        "expectancy": 13.253525682728485,
+        "win_rate": 0.7037151894808659,
+        "profit_factor": 5.23891618937135,
+        "annualized_sharpe": 67.06933128542225,
+        "total_trades": 193476,
+        "stage1_best_iter": 869,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 30,
+        "test_groups": [
+          4,
+          5
+        ],
+        "n_train_bars": 660495,
+        "n_test_bars": 206753,
+        "expectancy": 12.021568630403785,
+        "win_rate": 0.679173156603447,
+        "profit_factor": 4.487672844620509,
+        "annualized_sharpe": 51.96517350730181,
+        "total_trades": 196458,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 31,
+        "test_groups": [
+          4,
+          6
+        ],
+        "n_train_bars": 652685,
+        "n_test_bars": 206743,
+        "expectancy": 12.1580216745565,
+        "win_rate": 0.6749265460724273,
+        "profit_factor": 4.454532687063625,
+        "annualized_sharpe": 50.24788415041309,
+        "total_trades": 197743,
+        "stage1_best_iter": 569,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 32,
+        "test_groups": [
+          4,
+          7
+        ],
+        "n_train_bars": 652665,
+        "n_test_bars": 206763,
+        "expectancy": 12.022170797638758,
+        "win_rate": 0.6805515452689593,
+        "profit_factor": 4.191601298117791,
+        "annualized_sharpe": 51.44483120937779,
+        "total_trades": 197409,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 179
+      },
+      {
+        "split_idx": 33,
+        "test_groups": [
+          4,
+          8
+        ],
+        "n_train_bars": 651995,
+        "n_test_bars": 204754,
+        "expectancy": 12.0000778841883,
+        "win_rate": 0.6775724897059794,
+        "profit_factor": 4.4978500532935834,
+        "annualized_sharpe": 57.08267412352384,
+        "total_trades": 196959,
+        "stage1_best_iter": 789,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 34,
+        "test_groups": [
+          4,
+          9
+        ],
+        "n_train_bars": 656574,
+        "n_test_bars": 201436,
+        "expectancy": 12.675904073170594,
+        "win_rate": 0.6875819921287556,
+        "profit_factor": 4.5777028823977535,
+        "annualized_sharpe": 48.28504469050698,
+        "total_trades": 187518,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 35,
+        "test_groups": [
+          5,
+          6
+        ],
+        "n_train_bars": 660508,
+        "n_test_bars": 209984,
+        "expectancy": 12.817101050219396,
+        "win_rate": 0.6941405998544187,
+        "profit_factor": 5.132025487924377,
+        "annualized_sharpe": 60.33816828739383,
+        "total_trades": 201949,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 36,
+        "test_groups": [
+          5,
+          7
+        ],
+        "n_train_bars": 652668,
+        "n_test_bars": 210004,
+        "expectancy": 12.597114772520335,
+        "win_rate": 0.6988406112242276,
+        "profit_factor": 4.7429990031445985,
+        "annualized_sharpe": 65.62346989132446,
+        "total_trades": 202348,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 37,
+        "test_groups": [
+          5,
+          8
+        ],
+        "n_train_bars": 651998,
+        "n_test_bars": 207995,
+        "expectancy": 12.575474007358533,
+        "win_rate": 0.6953397201750516,
+        "profit_factor": 5.127697675569124,
+        "annualized_sharpe": 77.34134733523182,
+        "total_trades": 201769,
+        "stage1_best_iter": 649,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 38,
+        "test_groups": [
+          5,
+          9
+        ],
+        "n_train_bars": 656577,
+        "n_test_bars": 204677,
+        "expectancy": 13.28448665800062,
+        "win_rate": 0.706056214385522,
+        "profit_factor": 5.257747734920959,
+        "annualized_sharpe": 60.962819532565454,
+        "total_trades": 192513,
+        "stage1_best_iter": 729,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 39,
+        "test_groups": [
+          6,
+          7
+        ],
+        "n_train_bars": 657254,
+        "n_test_bars": 209994,
+        "expectancy": 12.647074085213418,
+        "win_rate": 0.6904833844340207,
+        "profit_factor": 4.622530936506863,
+        "annualized_sharpe": 50.80375311554805,
+        "total_trades": 201889,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 40,
+        "test_groups": [
+          6,
+          8
+        ],
+        "n_train_bars": 648764,
+        "n_test_bars": 207985,
+        "expectancy": 12.638380661722321,
+        "win_rate": 0.6880100189843851,
+        "profit_factor": 5.000252938661607,
+        "annualized_sharpe": 57.45374284888554,
+        "total_trades": 201218,
+        "stage1_best_iter": 749,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 41,
+        "test_groups": [
+          6,
+          9
+        ],
+        "n_train_bars": 653343,
+        "n_test_bars": 204667,
+        "expectancy": 13.374257939456129,
+        "win_rate": 0.6987957447915312,
+        "profit_factor": 5.155821546393454,
+        "annualized_sharpe": 51.091152227469806,
+        "total_trades": 192235,
+        "stage1_best_iter": 959,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 42,
+        "test_groups": [
+          7,
+          8
+        ],
+        "n_train_bars": 652673,
+        "n_test_bars": 208005,
+        "expectancy": 12.432125191778438,
+        "win_rate": 0.6922780856323739,
+        "profit_factor": 4.65167101100248,
+        "annualized_sharpe": 65.78131420107019,
+        "total_trades": 202657,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 339
+      },
+      {
+        "split_idx": 43,
+        "test_groups": [
+          7,
+          9
+        ],
+        "n_train_bars": 656583,
+        "n_test_bars": 204687,
+        "expectancy": 13.161269374344217,
+        "win_rate": 0.7026221600152878,
+        "profit_factor": 4.768330697904623,
+        "annualized_sharpe": 54.757795282423835,
+        "total_trades": 193619,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 44,
+        "test_groups": [
+          8,
+          9
+        ],
+        "n_train_bars": 661158,
+        "n_test_bars": 202678,
+        "expectancy": 13.115652131042683,
+        "win_rate": 0.6989625835350964,
+        "profit_factor": 5.15381740557665,
+        "annualized_sharpe": 60.56110470858722,
+        "total_trades": 192883,
+        "stage1_best_iter": 619,
+        "stage2_best_iter": 289
+      }
+    ]
+  },
+  "pessimistic": {
+    "mean_expectancy": 8.722118291034144,
+    "std_expectancy": 0.5859075519818245,
+    "ci_95": [
+      8.546124279951135,
+      8.898112302117154
+    ],
+    "negative_fold_fraction": 0.0,
+    "annualized_sharpe": 36.398236314706764,
+    "deflated_sharpe": 1.0,
+    "pooled_profit_factor": null,
+    "pooled_win_rate": 0.6909111278203527,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0,
+          1
+        ],
+        "n_train_bars": 663261,
+        "n_test_bars": 207897,
+        "expectancy": 9.134372193775306,
+        "win_rate": 0.7049457448419736,
+        "profit_factor": 3.1343860448131755,
+        "annualized_sharpe": 55.98127077436315,
+        "total_trades": 204681,
+        "stage1_best_iter": 399,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 1,
+        "test_groups": [
+          0,
+          2
+        ],
+        "n_train_bars": 656685,
+        "n_test_bars": 206653,
+        "expectancy": 7.821571530048862,
+        "win_rate": 0.6761745299892683,
+        "profit_factor": 2.6044059533833552,
+        "annualized_sharpe": 22.59962202163146,
+        "total_trades": 201272,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 2,
+        "test_groups": [
+          0,
+          3
+        ],
+        "n_train_bars": 659927,
+        "n_test_bars": 206653,
+        "expectancy": 9.033882962402375,
+        "win_rate": 0.7004219617763899,
+        "profit_factor": 3.1950885721758526,
+        "annualized_sharpe": 89.66687637980363,
+        "total_trades": 202388,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 3,
+        "test_groups": [
+          0,
+          4
+        ],
+        "n_train_bars": 659922,
+        "n_test_bars": 203416,
+        "expectancy": 8.530342401143537,
+        "win_rate": 0.6868882032779492,
+        "profit_factor": 2.8646204161176034,
+        "annualized_sharpe": 46.911636951204336,
+        "total_trades": 195122,
+        "stage1_best_iter": 539,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 4,
+        "test_groups": [
+          0,
+          5
+        ],
+        "n_train_bars": 659925,
+        "n_test_bars": 206657,
+        "expectancy": 8.953614839646978,
+        "win_rate": 0.6993040019885658,
+        "profit_factor": 3.1559991759120716,
+        "annualized_sharpe": 59.69309005069045,
+        "total_trades": 201150,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 5,
+        "test_groups": [
+          0,
+          6
+        ],
+        "n_train_bars": 656691,
+        "n_test_bars": 206647,
+        "expectancy": 8.957770799628342,
+        "win_rate": 0.6901629150603159,
+        "profit_factor": 3.0737152983881906,
+        "annualized_sharpe": 44.08158154643247,
+        "total_trades": 201025,
+        "stage1_best_iter": 469,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 6,
+        "test_groups": [
+          0,
+          7
+        ],
+        "n_train_bars": 656671,
+        "n_test_bars": 206667,
+        "expectancy": 8.877920391122183,
+        "win_rate": 0.6979202182066144,
+        "profit_factor": 2.975560493503867,
+        "annualized_sharpe": 53.57071706946109,
+        "total_trades": 202377,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 7,
+        "test_groups": [
+          0,
+          8
+        ],
+        "n_train_bars": 656001,
+        "n_test_bars": 204658,
+        "expectancy": 8.84748582467988,
+        "win_rate": 0.6939230256547992,
+        "profit_factor": 3.111707510062496,
+        "annualized_sharpe": 70.09346001862457,
+        "total_trades": 201054,
+        "stage1_best_iter": 799,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 8,
+        "test_groups": [
+          0,
+          9
+        ],
+        "n_train_bars": 660580,
+        "n_test_bars": 201340,
+        "expectancy": 9.551782959611014,
+        "win_rate": 0.7040467354809201,
+        "profit_factor": 3.2612805147590036,
+        "annualized_sharpe": 55.5407072938767,
+        "total_trades": 192402,
+        "stage1_best_iter": 899,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 9,
+        "test_groups": [
+          1,
+          2
+        ],
+        "n_train_bars": 656018,
+        "n_test_bars": 211230,
+        "expectancy": 8.055178744692936,
+        "win_rate": 0.686375800111746,
+        "profit_factor": 2.610305549710504,
+        "annualized_sharpe": 21.759279124112247,
+        "total_trades": 204034,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 10,
+        "test_groups": [
+          1,
+          3
+        ],
+        "n_train_bars": 651440,
+        "n_test_bars": 211230,
+        "expectancy": 9.141106583192364,
+        "win_rate": 0.705462572163198,
+        "profit_factor": 3.139871140490456,
+        "annualized_sharpe": 55.1053575571314,
+        "total_trades": 206130,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 11,
+        "test_groups": [
+          1,
+          4
+        ],
+        "n_train_bars": 655345,
+        "n_test_bars": 207993,
+        "expectancy": 8.606904261177224,
+        "win_rate": 0.6903438962281545,
+        "profit_factor": 2.8260398207599398,
+        "annualized_sharpe": 36.62707565035849,
+        "total_trades": 200671,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 12,
+        "test_groups": [
+          1,
+          5
+        ],
+        "n_train_bars": 655348,
+        "n_test_bars": 211234,
+        "expectancy": 9.123970283330712,
+        "win_rate": 0.7059896684438765,
+        "profit_factor": 3.132506872898478,
+        "annualized_sharpe": 48.36696878607178,
+        "total_trades": 205003,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 13,
+        "test_groups": [
+          1,
+          6
+        ],
+        "n_train_bars": 652114,
+        "n_test_bars": 211224,
+        "expectancy": 9.1752473196582,
+        "win_rate": 0.6985867446393762,
+        "profit_factor": 3.0772090699899945,
+        "annualized_sharpe": 38.77566350235803,
+        "total_trades": 205200,
+        "stage1_best_iter": 409,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 14,
+        "test_groups": [
+          1,
+          7
+        ],
+        "n_train_bars": 652094,
+        "n_test_bars": 211244,
+        "expectancy": 9.031889277824236,
+        "win_rate": 0.7043460528168501,
+        "profit_factor": 2.9529319953645246,
+        "annualized_sharpe": 42.77524295389725,
+        "total_trades": 205957,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 15,
+        "test_groups": [
+          1,
+          8
+        ],
+        "n_train_bars": 647514,
+        "n_test_bars": 209235,
+        "expectancy": 9.004753881878024,
+        "win_rate": 0.7004877050578084,
+        "profit_factor": 3.0822509993812184,
+        "annualized_sharpe": 49.6303404576168,
+        "total_trades": 205247,
+        "stage1_best_iter": 719,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 16,
+        "test_groups": [
+          1,
+          9
+        ],
+        "n_train_bars": 652093,
+        "n_test_bars": 205917,
+        "expectancy": 9.682197673916255,
+        "win_rate": 0.7106293193076876,
+        "profit_factor": 3.214061022361845,
+        "annualized_sharpe": 44.743952931910854,
+        "total_trades": 196212,
+        "stage1_best_iter": 829,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 17,
+        "test_groups": [
+          2,
+          3
+        ],
+        "n_train_bars": 656594,
+        "n_test_bars": 209986,
+        "expectancy": 7.894779911324201,
+        "win_rate": 0.682239811080981,
+        "profit_factor": 2.610301315846862,
+        "annualized_sharpe": 22.835354805643057,
+        "total_trades": 199874,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 18,
+        "test_groups": [
+          2,
+          4
+        ],
+        "n_train_bars": 652679,
+        "n_test_bars": 206749,
+        "expectancy": 7.325547976702787,
+        "win_rate": 0.6663082585501013,
+        "profit_factor": 2.3609257902707963,
+        "annualized_sharpe": 19.998320877074715,
+        "total_trades": 193448,
+        "stage1_best_iter": 509,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 19,
+        "test_groups": [
+          2,
+          5
+        ],
+        "n_train_bars": 652682,
+        "n_test_bars": 209990,
+        "expectancy": 7.794302470657191,
+        "win_rate": 0.6783978038432743,
+        "profit_factor": 2.5866435129723087,
+        "annualized_sharpe": 21.706148096843368,
+        "total_trades": 200350,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 20,
+        "test_groups": [
+          2,
+          6
+        ],
+        "n_train_bars": 649448,
+        "n_test_bars": 209980,
+        "expectancy": 7.91684257735494,
+        "win_rate": 0.6745660279025016,
+        "profit_factor": 2.5686121304613208,
+        "annualized_sharpe": 20.378578851780258,
+        "total_trades": 199552,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 21,
+        "test_groups": [
+          2,
+          7
+        ],
+        "n_train_bars": 649428,
+        "n_test_bars": 210000,
+        "expectancy": 7.606305925127207,
+        "win_rate": 0.6722781281508867,
+        "profit_factor": 2.4420301173060404,
+        "annualized_sharpe": 20.407541255054635,
+        "total_trades": 202324,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 22,
+        "test_groups": [
+          2,
+          8
+        ],
+        "n_train_bars": 648758,
+        "n_test_bars": 207991,
+        "expectancy": 7.608997031901279,
+        "win_rate": 0.6691036694014701,
+        "profit_factor": 2.5360694124665737,
+        "annualized_sharpe": 21.35267257492864,
+        "total_trades": 201477,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 319
+      },
+      {
+        "split_idx": 23,
+        "test_groups": [
+          2,
+          9
+        ],
+        "n_train_bars": 653337,
+        "n_test_bars": 204673,
+        "expectancy": 8.213414777533727,
+        "win_rate": 0.6761225885327089,
+        "profit_factor": 2.6294486025898407,
+        "annualized_sharpe": 20.889617897522957,
+        "total_trades": 193036,
+        "stage1_best_iter": 709,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 24,
+        "test_groups": [
+          3,
+          4
+        ],
+        "n_train_bars": 660499,
+        "n_test_bars": 206749,
+        "expectancy": 8.373112422927733,
+        "win_rate": 0.6809702531998196,
+        "profit_factor": 2.818979619663541,
+        "annualized_sharpe": 44.45749500701869,
+        "total_trades": 197433,
+        "stage1_best_iter": 489,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 25,
+        "test_groups": [
+          3,
+          5
+        ],
+        "n_train_bars": 655924,
+        "n_test_bars": 209990,
+        "expectancy": 8.885495413227563,
+        "win_rate": 0.6969085223449313,
+        "profit_factor": 3.1252333564470125,
+        "annualized_sharpe": 59.421572600149915,
+        "total_trades": 202104,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 26,
+        "test_groups": [
+          3,
+          6
+        ],
+        "n_train_bars": 652690,
+        "n_test_bars": 209980,
+        "expectancy": 8.962644373859986,
+        "win_rate": 0.6904147648342925,
+        "profit_factor": 3.0747355201436455,
+        "annualized_sharpe": 42.53126387657519,
+        "total_trades": 201560,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 27,
+        "test_groups": [
+          3,
+          7
+        ],
+        "n_train_bars": 652670,
+        "n_test_bars": 210000,
+        "expectancy": 8.810327070598559,
+        "win_rate": 0.6961243360220343,
+        "profit_factor": 2.950459205909289,
+        "annualized_sharpe": 51.85139357890933,
+        "total_trades": 203320,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 28,
+        "test_groups": [
+          3,
+          8
+        ],
+        "n_train_bars": 648090,
+        "n_test_bars": 207991,
+        "expectancy": 8.79935660292988,
+        "win_rate": 0.6924640569956878,
+        "profit_factor": 3.094748631708024,
+        "annualized_sharpe": 66.7218283567679,
+        "total_trades": 202682,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 29,
+        "test_groups": [
+          3,
+          9
+        ],
+        "n_train_bars": 652669,
+        "n_test_bars": 204673,
+        "expectancy": 9.503525682746433,
+        "win_rate": 0.7032293411069073,
+        "profit_factor": 3.241961023419069,
+        "annualized_sharpe": 53.984177377745986,
+        "total_trades": 193476,
+        "stage1_best_iter": 869,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 30,
+        "test_groups": [
+          4,
+          5
+        ],
+        "n_train_bars": 660495,
+        "n_test_bars": 206753,
+        "expectancy": 8.271568630425612,
+        "win_rate": 0.6787099532724552,
+        "profit_factor": 2.778407865495235,
+        "annualized_sharpe": 37.23800266977528,
+        "total_trades": 196458,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 31,
+        "test_groups": [
+          4,
+          6
+        ],
+        "n_train_bars": 652685,
+        "n_test_bars": 206743,
+        "expectancy": 8.408021674577698,
+        "win_rate": 0.6744764669292971,
+        "profit_factor": 2.774042771210417,
+        "annualized_sharpe": 35.19611048581796,
+        "total_trades": 197743,
+        "stage1_best_iter": 569,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 32,
+        "test_groups": [
+          4,
+          7
+        ],
+        "n_train_bars": 652665,
+        "n_test_bars": 206763,
+        "expectancy": 8.272170797659873,
+        "win_rate": 0.6800652452522428,
+        "profit_factor": 2.6658255663626638,
+        "annualized_sharpe": 36.16720862498854,
+        "total_trades": 197409,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 179
+      },
+      {
+        "split_idx": 33,
+        "test_groups": [
+          4,
+          8
+        ],
+        "n_train_bars": 651995,
+        "n_test_bars": 204754,
+        "expectancy": 8.250077884210226,
+        "win_rate": 0.6763184216004346,
+        "profit_factor": 2.7765052121197193,
+        "annualized_sharpe": 40.556572546947514,
+        "total_trades": 196959,
+        "stage1_best_iter": 789,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 34,
+        "test_groups": [
+          4,
+          9
+        ],
+        "n_train_bars": 656574,
+        "n_test_bars": 201436,
+        "expectancy": 8.925904073187045,
+        "win_rate": 0.6868193986710609,
+        "profit_factor": 2.892506719850596,
+        "annualized_sharpe": 36.88399450536557,
+        "total_trades": 187518,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 35,
+        "test_groups": [
+          5,
+          6
+        ],
+        "n_train_bars": 660508,
+        "n_test_bars": 209984,
+        "expectancy": 9.067101050240506,
+        "win_rate": 0.6938434951398621,
+        "profit_factor": 3.133604035354914,
+        "annualized_sharpe": 43.37664509764668,
+        "total_trades": 201949,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 36,
+        "test_groups": [
+          5,
+          7
+        ],
+        "n_train_bars": 652668,
+        "n_test_bars": 210004,
+        "expectancy": 8.847114772541406,
+        "win_rate": 0.6984156008460671,
+        "profit_factor": 2.967816509651671,
+        "annualized_sharpe": 46.847009299960376,
+        "total_trades": 202348,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 37,
+        "test_groups": [
+          5,
+          8
+        ],
+        "n_train_bars": 651998,
+        "n_test_bars": 207995,
+        "expectancy": 8.825474007380354,
+        "win_rate": 0.6941898904192418,
+        "profit_factor": 3.1047617762028072,
+        "annualized_sharpe": 56.408276058055925,
+        "total_trades": 201769,
+        "stage1_best_iter": 649,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 38,
+        "test_groups": [
+          5,
+          9
+        ],
+        "n_train_bars": 656577,
+        "n_test_bars": 204677,
+        "expectancy": 9.5344866580182,
+        "win_rate": 0.7053497685870564,
+        "profit_factor": 3.257117635600761,
+        "annualized_sharpe": 48.82904891727711,
+        "total_trades": 192513,
+        "stage1_best_iter": 729,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 39,
+        "test_groups": [
+          6,
+          7
+        ],
+        "n_train_bars": 657254,
+        "n_test_bars": 209994,
+        "expectancy": 8.897074085233793,
+        "win_rate": 0.6901515189039522,
+        "profit_factor": 2.912264635658991,
+        "annualized_sharpe": 36.22135402352656,
+        "total_trades": 201889,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 40,
+        "test_groups": [
+          6,
+          8
+        ],
+        "n_train_bars": 648764,
+        "n_test_bars": 207985,
+        "expectancy": 8.8883806617435,
+        "win_rate": 0.6869216471687424,
+        "profit_factor": 3.0512418396164462,
+        "annualized_sharpe": 41.364551192771025,
+        "total_trades": 201218,
+        "stage1_best_iter": 749,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 41,
+        "test_groups": [
+          6,
+          9
+        ],
+        "n_train_bars": 653343,
+        "n_test_bars": 204667,
+        "expectancy": 9.624257939475104,
+        "win_rate": 0.698155902931308,
+        "profit_factor": 3.2128170964339726,
+        "annualized_sharpe": 39.556605436311095,
+        "total_trades": 192235,
+        "stage1_best_iter": 959,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 42,
+        "test_groups": [
+          7,
+          8
+        ],
+        "n_train_bars": 652673,
+        "n_test_bars": 208005,
+        "expectancy": 8.682125191799479,
+        "win_rate": 0.6911382286326156,
+        "profit_factor": 2.902996621922902,
+        "annualized_sharpe": 46.42105589645256,
+        "total_trades": 202657,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 339
+      },
+      {
+        "split_idx": 43,
+        "test_groups": [
+          7,
+          9
+        ],
+        "n_train_bars": 656583,
+        "n_test_bars": 204687,
+        "expectancy": 9.411269374364002,
+        "win_rate": 0.7019404087408777,
+        "profit_factor": 3.0417475906245355,
+        "annualized_sharpe": 42.18906582394628,
+        "total_trades": 193619,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 44,
+        "test_groups": [
+          8,
+          9
+        ],
+        "n_train_bars": 661158,
+        "n_test_bars": 202678,
+        "expectancy": 9.365652131059711,
+        "win_rate": 0.6974850038624452,
+        "profit_factor": 3.182488690600336,
+        "annualized_sharpe": 47.96816073407799,
+        "total_trades": 192883,
+        "stage1_best_iter": 619,
+        "stage2_best_iter": 289
+      }
+    ]
+  },
+  "serial_base": {
+    "mean_expectancy": -2.575060256630205,
+    "std_expectancy": 0.16036667131515261,
+    "ci_95": [
+      -2.6232309511933973,
+      -2.526889562067013
+    ],
+    "negative_fold_fraction": 1.0,
+    "annualized_sharpe": -14.894146549799126,
+    "deflated_sharpe": 0.0,
+    "pooled_profit_factor": 0.0,
+    "pooled_win_rate": 0.26696691994323024,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0,
+          1
+        ],
+        "n_train_bars": 663261,
+        "n_test_bars": 207897,
+        "expectancy": -2.4071270718245135,
+        "win_rate": 0.27183813647902044,
+        "profit_factor": 0.7058833349433262,
+        "annualized_sharpe": -15.817423887136927,
+        "total_trades": 13394,
+        "stage1_best_iter": 399,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 1,
+        "test_groups": [
+          0,
+          2
+        ],
+        "n_train_bars": 656685,
+        "n_test_bars": 206653,
+        "expectancy": -2.4960602024507823,
+        "win_rate": 0.2690463505594033,
+        "profit_factor": 0.6961035313470111,
+        "annualized_sharpe": -12.979886615205803,
+        "total_trades": 9385,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 2,
+        "test_groups": [
+          0,
+          3
+        ],
+        "n_train_bars": 659927,
+        "n_test_bars": 206653,
+        "expectancy": -2.6007069933658413,
+        "win_rate": 0.2658244002041858,
+        "profit_factor": 0.6848138351220568,
+        "annualized_sharpe": -18.434546902556594,
+        "total_trades": 15672,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 3,
+        "test_groups": [
+          0,
+          4
+        ],
+        "n_train_bars": 659922,
+        "n_test_bars": 203416,
+        "expectancy": -2.5781442021806815,
+        "win_rate": 0.26650148662041623,
+        "profit_factor": 0.6871443486225459,
+        "annualized_sharpe": -14.001477151308135,
+        "total_trades": 10090,
+        "stage1_best_iter": 539,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 4,
+        "test_groups": [
+          0,
+          5
+        ],
+        "n_train_bars": 659925,
+        "n_test_bars": 206657,
+        "expectancy": -2.7461053984578134,
+        "win_rate": 0.26138817480719795,
+        "profit_factor": 0.6691517976714751,
+        "annualized_sharpe": -15.607418238987615,
+        "total_trades": 9725,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 5,
+        "test_groups": [
+          0,
+          6
+        ],
+        "n_train_bars": 656691,
+        "n_test_bars": 206647,
+        "expectancy": -2.5590033873188234,
+        "win_rate": 0.2671747644754949,
+        "profit_factor": 0.68920673419338,
+        "annualized_sharpe": -13.579469155473358,
+        "total_trades": 9447,
+        "stage1_best_iter": 469,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 6,
+        "test_groups": [
+          0,
+          7
+        ],
+        "n_train_bars": 656671,
+        "n_test_bars": 206667,
+        "expectancy": -2.4943616355020546,
+        "win_rate": 0.2691240941218574,
+        "profit_factor": 0.6963025728106765,
+        "annualized_sharpe": -15.63211614104878,
+        "total_trades": 11177,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 7,
+        "test_groups": [
+          0,
+          8
+        ],
+        "n_train_bars": 656001,
+        "n_test_bars": 204658,
+        "expectancy": -2.6139468567730315,
+        "win_rate": 0.2655309693546894,
+        "profit_factor": 0.6832998366651468,
+        "annualized_sharpe": -16.333776131516807,
+        "total_trades": 10801,
+        "stage1_best_iter": 799,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 8,
+        "test_groups": [
+          0,
+          9
+        ],
+        "n_train_bars": 660580,
+        "n_test_bars": 201340,
+        "expectancy": -2.494046417206155,
+        "win_rate": 0.26917590255678703,
+        "profit_factor": 0.6963480123153608,
+        "annualized_sharpe": -12.604030811176427,
+        "total_trades": 9113,
+        "stage1_best_iter": 899,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 9,
+        "test_groups": [
+          1,
+          2
+        ],
+        "n_train_bars": 656018,
+        "n_test_bars": 211230,
+        "expectancy": -2.2986017727812933,
+        "win_rate": 0.2751053940114582,
+        "profit_factor": 0.7178171573087997,
+        "annualized_sharpe": -13.607429489520019,
+        "total_trades": 9251,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 10,
+        "test_groups": [
+          1,
+          3
+        ],
+        "n_train_bars": 651440,
+        "n_test_bars": 211230,
+        "expectancy": -2.492331489582507,
+        "win_rate": 0.2691664522768202,
+        "profit_factor": 0.6965961979990216,
+        "annualized_sharpe": -18.703882833089597,
+        "total_trades": 15548,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 11,
+        "test_groups": [
+          1,
+          4
+        ],
+        "n_train_bars": 655345,
+        "n_test_bars": 207993,
+        "expectancy": -2.383896371494843,
+        "win_rate": 0.27248969745703083,
+        "profit_factor": 0.7083768039565633,
+        "annualized_sharpe": -14.62433720332577,
+        "total_trades": 9949,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 12,
+        "test_groups": [
+          1,
+          5
+        ],
+        "n_train_bars": 655348,
+        "n_test_bars": 211234,
+        "expectancy": -2.5938952579470014,
+        "win_rate": 0.2661803022407504,
+        "profit_factor": 0.6855173005492398,
+        "annualized_sharpe": -16.04441159038019,
+        "total_trades": 9595,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 13,
+        "test_groups": [
+          1,
+          6
+        ],
+        "n_train_bars": 652114,
+        "n_test_bars": 211224,
+        "expectancy": -2.34428295405754,
+        "win_rate": 0.2738299699441821,
+        "profit_factor": 0.7127530831640501,
+        "annualized_sharpe": -14.267281573845812,
+        "total_trades": 9316,
+        "stage1_best_iter": 409,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 14,
+        "test_groups": [
+          1,
+          7
+        ],
+        "n_train_bars": 652094,
+        "n_test_bars": 211244,
+        "expectancy": -2.332239042024916,
+        "win_rate": 0.27410754631721646,
+        "profit_factor": 0.7141188084886508,
+        "annualized_sharpe": -16.007355841722262,
+        "total_trades": 11065,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 15,
+        "test_groups": [
+          1,
+          8
+        ],
+        "n_train_bars": 647514,
+        "n_test_bars": 209235,
+        "expectancy": -2.4605641385772237,
+        "win_rate": 0.2702247191011236,
+        "profit_factor": 0.6999990638821328,
+        "annualized_sharpe": -17.01265849083417,
+        "total_trades": 10680,
+        "stage1_best_iter": 719,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 16,
+        "test_groups": [
+          1,
+          9
+        ],
+        "n_train_bars": 652093,
+        "n_test_bars": 205917,
+        "expectancy": -2.330117895673336,
+        "win_rate": 0.27416305194082974,
+        "profit_factor": 0.7143905898443043,
+        "annualized_sharpe": -13.19727972572124,
+        "total_trades": 8991,
+        "stage1_best_iter": 829,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 17,
+        "test_groups": [
+          2,
+          3
+        ],
+        "n_train_bars": 656594,
+        "n_test_bars": 209986,
+        "expectancy": -2.5619194415546125,
+        "win_rate": 0.26699618453000346,
+        "profit_factor": 0.6889869324013689,
+        "annualized_sharpe": -15.423673224137422,
+        "total_trades": 11532,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 18,
+        "test_groups": [
+          2,
+          4
+        ],
+        "n_train_bars": 652679,
+        "n_test_bars": 206749,
+        "expectancy": -2.498418925745097,
+        "win_rate": 0.2689004882976932,
+        "profit_factor": 0.6956851934039693,
+        "annualized_sharpe": -14.834547696595,
+        "total_trades": 5939,
+        "stage1_best_iter": 509,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 19,
+        "test_groups": [
+          2,
+          5
+        ],
+        "n_train_bars": 652682,
+        "n_test_bars": 209990,
+        "expectancy": -2.841996061582615,
+        "win_rate": 0.2585034013605442,
+        "profit_factor": 0.6588676230458292,
+        "annualized_sharpe": -16.82098643005268,
+        "total_trades": 5586,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 20,
+        "test_groups": [
+          2,
+          6
+        ],
+        "n_train_bars": 649448,
+        "n_test_bars": 209980,
+        "expectancy": -2.4203066037737835,
+        "win_rate": 0.2715094339622641,
+        "profit_factor": 0.7042291078608228,
+        "annualized_sharpe": -16.668399688883333,
+        "total_trades": 5300,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 21,
+        "test_groups": [
+          2,
+          7
+        ],
+        "n_train_bars": 649428,
+        "n_test_bars": 210000,
+        "expectancy": -2.431600397614013,
+        "win_rate": 0.2709457540471457,
+        "profit_factor": 0.703115733652654,
+        "annualized_sharpe": -15.952730847680067,
+        "total_trades": 7042,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 22,
+        "test_groups": [
+          2,
+          8
+        ],
+        "n_train_bars": 648758,
+        "n_test_bars": 207991,
+        "expectancy": -2.593697869786775,
+        "win_rate": 0.26612661266126614,
+        "profit_factor": 0.685406900978896,
+        "annualized_sharpe": -17.443873165228336,
+        "total_trades": 6666,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 319
+      },
+      {
+        "split_idx": 23,
+        "test_groups": [
+          2,
+          9
+        ],
+        "n_train_bars": 653337,
+        "n_test_bars": 204673,
+        "expectancy": -2.417497989545917,
+        "win_rate": 0.27141133896260555,
+        "profit_factor": 0.704663341602981,
+        "annualized_sharpe": -14.143682859492952,
+        "total_trades": 4974,
+        "stage1_best_iter": 709,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 24,
+        "test_groups": [
+          3,
+          4
+        ],
+        "n_train_bars": 660499,
+        "n_test_bars": 206749,
+        "expectancy": -2.6182195421105017,
+        "win_rate": 0.2652493867538839,
+        "profit_factor": 0.6828605184789164,
+        "annualized_sharpe": -16.670139813735055,
+        "total_trades": 12230,
+        "stage1_best_iter": 489,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 25,
+        "test_groups": [
+          3,
+          5
+        ],
+        "n_train_bars": 655924,
+        "n_test_bars": 209990,
+        "expectancy": -2.7856287374723796,
+        "win_rate": 0.2601701339172913,
+        "profit_factor": 0.6649855388908701,
+        "annualized_sharpe": -17.839695936969616,
+        "total_trades": 11873,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 26,
+        "test_groups": [
+          3,
+          6
+        ],
+        "n_train_bars": 652690,
+        "n_test_bars": 209980,
+        "expectancy": -2.6068707952396166,
+        "win_rate": 0.26574090046575816,
+        "profit_factor": 0.6841044021171891,
+        "annualized_sharpe": -16.079754907589525,
+        "total_trades": 11594,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 27,
+        "test_groups": [
+          3,
+          7
+        ],
+        "n_train_bars": 652670,
+        "n_test_bars": 210000,
+        "expectancy": -2.571073223799024,
+        "win_rate": 0.2667116812964213,
+        "profit_factor": 0.6880281760979551,
+        "annualized_sharpe": -18.229532010238668,
+        "total_trades": 13329,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 28,
+        "test_groups": [
+          3,
+          8
+        ],
+        "n_train_bars": 648090,
+        "n_test_bars": 207991,
+        "expectancy": -2.6620958523221745,
+        "win_rate": 0.2639993820962385,
+        "profit_factor": 0.6781787779531305,
+        "annualized_sharpe": -18.876281693328544,
+        "total_trades": 12947,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 29,
+        "test_groups": [
+          3,
+          9
+        ],
+        "n_train_bars": 652669,
+        "n_test_bars": 204673,
+        "expectancy": -2.5875712636539365,
+        "win_rate": 0.2662285765029749,
+        "profit_factor": 0.6862633796501814,
+        "annualized_sharpe": -14.934237895513967,
+        "total_trades": 11261,
+        "stage1_best_iter": 869,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 30,
+        "test_groups": [
+          4,
+          5
+        ],
+        "n_train_bars": 660495,
+        "n_test_bars": 206753,
+        "expectancy": -2.91306315622008,
+        "win_rate": 0.2561247216035635,
+        "profit_factor": 0.6512473683829624,
+        "annualized_sharpe": -16.86495863198528,
+        "total_trades": 6286,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 31,
+        "test_groups": [
+          4,
+          6
+        ],
+        "n_train_bars": 652685,
+        "n_test_bars": 206743,
+        "expectancy": -2.563841859690054,
+        "win_rate": 0.2669555074154308,
+        "profit_factor": 0.688446305254521,
+        "annualized_sharpe": -15.838063999556026,
+        "total_trades": 6001,
+        "stage1_best_iter": 569,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 32,
+        "test_groups": [
+          4,
+          7
+        ],
+        "n_train_bars": 652665,
+        "n_test_bars": 206763,
+        "expectancy": -2.5227884739625877,
+        "win_rate": 0.2681224964465693,
+        "profit_factor": 0.6931066470694446,
+        "annualized_sharpe": -16.32182142817854,
+        "total_trades": 7739,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 179
+      },
+      {
+        "split_idx": 33,
+        "test_groups": [
+          4,
+          8
+        ],
+        "n_train_bars": 651995,
+        "n_test_bars": 204754,
+        "expectancy": -2.6749082256964307,
+        "win_rate": 0.2636301835486064,
+        "profit_factor": 0.6766325054026502,
+        "annualized_sharpe": -17.53035284616594,
+        "total_trades": 7355,
+        "stage1_best_iter": 789,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 34,
+        "test_groups": [
+          4,
+          9
+        ],
+        "n_train_bars": 656574,
+        "n_test_bars": 201436,
+        "expectancy": -2.5322103685418083,
+        "win_rate": 0.2678539940045847,
+        "profit_factor": 0.6920631915096035,
+        "annualized_sharpe": -13.781683207690904,
+        "total_trades": 5671,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 35,
+        "test_groups": [
+          5,
+          6
+        ],
+        "n_train_bars": 660508,
+        "n_test_bars": 209984,
+        "expectancy": -2.9092532813054968,
+        "win_rate": 0.2566512947853849,
+        "profit_factor": 0.6517402298054851,
+        "annualized_sharpe": -17.913410741784787,
+        "total_trades": 5638,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 36,
+        "test_groups": [
+          5,
+          7
+        ],
+        "n_train_bars": 652668,
+        "n_test_bars": 210004,
+        "expectancy": -2.766046606150547,
+        "win_rate": 0.2608047690014903,
+        "profit_factor": 0.6670268025762089,
+        "annualized_sharpe": -18.075921036717673,
+        "total_trades": 7381,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 37,
+        "test_groups": [
+          5,
+          8
+        ],
+        "n_train_bars": 651998,
+        "n_test_bars": 207995,
+        "expectancy": -2.942792458219963,
+        "win_rate": 0.25553492358234536,
+        "profit_factor": 0.6482663933719736,
+        "annualized_sharpe": -19.674998937455502,
+        "total_trades": 7001,
+        "stage1_best_iter": 649,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 38,
+        "test_groups": [
+          5,
+          9
+        ],
+        "n_train_bars": 656577,
+        "n_test_bars": 204677,
+        "expectancy": -2.8753303840362894,
+        "win_rate": 0.2575301204819277,
+        "profit_factor": 0.6554576572007937,
+        "annualized_sharpe": -15.378588544115159,
+        "total_trades": 5312,
+        "stage1_best_iter": 729,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 39,
+        "test_groups": [
+          6,
+          7
+        ],
+        "n_train_bars": 657254,
+        "n_test_bars": 209994,
+        "expectancy": -2.475465116278756,
+        "win_rate": 0.26976744186046514,
+        "profit_factor": 0.6983010325592087,
+        "annualized_sharpe": -16.75885829510739,
+        "total_trades": 7095,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 40,
+        "test_groups": [
+          6,
+          8
+        ],
+        "n_train_bars": 648764,
+        "n_test_bars": 207985,
+        "expectancy": -2.680241635687514,
+        "win_rate": 0.2636431226765799,
+        "profit_factor": 0.6760665047055494,
+        "annualized_sharpe": -18.767231984966276,
+        "total_trades": 6725,
+        "stage1_best_iter": 749,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 41,
+        "test_groups": [
+          6,
+          9
+        ],
+        "n_train_bars": 653343,
+        "n_test_bars": 204667,
+        "expectancy": -2.510626242544987,
+        "win_rate": 0.2687872763419483,
+        "profit_factor": 0.6944629060748585,
+        "annualized_sharpe": -15.343397890327713,
+        "total_trades": 5030,
+        "stage1_best_iter": 959,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 42,
+        "test_groups": [
+          7,
+          8
+        ],
+        "n_train_bars": 652673,
+        "n_test_bars": 208005,
+        "expectancy": -2.5965416420552576,
+        "win_rate": 0.26603662138216183,
+        "profit_factor": 0.6852017326438666,
+        "annualized_sharpe": -19.06915025963527,
+        "total_trades": 8465,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 339
+      },
+      {
+        "split_idx": 43,
+        "test_groups": [
+          7,
+          9
+        ],
+        "n_train_bars": 656583,
+        "n_test_bars": 204687,
+        "expectancy": -2.4590594059403643,
+        "win_rate": 0.27013447613418057,
+        "profit_factor": 0.7001921582394579,
+        "annualized_sharpe": -14.858291099274842,
+        "total_trades": 6767,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 44,
+        "test_groups": [
+          8,
+          9
+        ],
+        "n_train_bars": 661158,
+        "n_test_bars": 202678,
+        "expectancy": -2.633214900610301,
+        "win_rate": 0.26498669588354984,
+        "profit_factor": 0.6812573197276014,
+        "annualized_sharpe": -16.20142015366799,
+        "total_trades": 6389,
+        "stage1_best_iter": 619,
+        "stage2_best_iter": 289
+      }
+    ]
+  },
+  "serial_optimistic": {
+    "mean_expectancy": -1.325060256630065,
+    "std_expectancy": 0.16036667131525262,
+    "ci_95": [
+      -1.3732309511932874,
+      -1.2768895620668428
+    ],
+    "negative_fold_fraction": 1.0,
+    "annualized_sharpe": -11.914370359347727,
+    "deflated_sharpe": 0.0,
+    "pooled_profit_factor": 0.0,
+    "pooled_win_rate": 0.2670116596698705,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0,
+          1
+        ],
+        "n_train_bars": 663261,
+        "n_test_bars": 207897,
+        "expectancy": -1.1571270718242668,
+        "win_rate": 0.27183813647902044,
+        "profit_factor": 0.8409241135466804,
+        "annualized_sharpe": -12.43257848319385,
+        "total_trades": 13394,
+        "stage1_best_iter": 399,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 1,
+        "test_groups": [
+          0,
+          2
+        ],
+        "n_train_bars": 656685,
+        "n_test_bars": 206653,
+        "expectancy": -1.2460602024502976,
+        "win_rate": 0.2691529035695258,
+        "profit_factor": 0.8293044172610934,
+        "annualized_sharpe": -10.779072525420556,
+        "total_trades": 9385,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 2,
+        "test_groups": [
+          0,
+          3
+        ],
+        "n_train_bars": 659927,
+        "n_test_bars": 206653,
+        "expectancy": -1.3507069933656315,
+        "win_rate": 0.2658244002041858,
+        "profit_factor": 0.8158197981351287,
+        "annualized_sharpe": -15.678007592979236,
+        "total_trades": 15672,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 3,
+        "test_groups": [
+          0,
+          4
+        ],
+        "n_train_bars": 659922,
+        "n_test_bars": 203416,
+        "expectancy": -1.32814420218023,
+        "win_rate": 0.26650148662041623,
+        "profit_factor": 0.8186539172505154,
+        "annualized_sharpe": -11.976609502783969,
+        "total_trades": 10090,
+        "stage1_best_iter": 539,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 4,
+        "test_groups": [
+          0,
+          5
+        ],
+        "n_train_bars": 659925,
+        "n_test_bars": 206657,
+        "expectancy": -1.4961053984573478,
+        "win_rate": 0.26138817480719795,
+        "profit_factor": 0.7971913978500907,
+        "annualized_sharpe": -14.074235372672945,
+        "total_trades": 9725,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 5,
+        "test_groups": [
+          0,
+          6
+        ],
+        "n_train_bars": 656691,
+        "n_test_bars": 206647,
+        "expectancy": -1.309003387318341,
+        "win_rate": 0.2671747644754949,
+        "profit_factor": 0.8211193799809142,
+        "annualized_sharpe": -11.757504060002093,
+        "total_trades": 9447,
+        "stage1_best_iter": 469,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 6,
+        "test_groups": [
+          0,
+          7
+        ],
+        "n_train_bars": 656671,
+        "n_test_bars": 206667,
+        "expectancy": -1.2443616355017102,
+        "win_rate": 0.2692135635680415,
+        "profit_factor": 0.8295342161994245,
+        "annualized_sharpe": -12.897467470759018,
+        "total_trades": 11177,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 7,
+        "test_groups": [
+          0,
+          8
+        ],
+        "n_train_bars": 656001,
+        "n_test_bars": 204658,
+        "expectancy": -1.3639468567726112,
+        "win_rate": 0.2655309693546894,
+        "profit_factor": 0.8140649627069437,
+        "annualized_sharpe": -14.415423349428318,
+        "total_trades": 10801,
+        "stage1_best_iter": 799,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 8,
+        "test_groups": [
+          0,
+          9
+        ],
+        "n_train_bars": 660580,
+        "n_test_bars": 201340,
+        "expectancy": -1.2440464172056567,
+        "win_rate": 0.26917590255678703,
+        "profit_factor": 0.829582042145343,
+        "annualized_sharpe": -10.614019454506137,
+        "total_trades": 9113,
+        "stage1_best_iter": 899,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 9,
+        "test_groups": [
+          1,
+          2
+        ],
+        "n_train_bars": 656018,
+        "n_test_bars": 211230,
+        "expectancy": -1.0486017727808017,
+        "win_rate": 0.27521349043346666,
+        "profit_factor": 0.8551602785076972,
+        "annualized_sharpe": -9.384341491385445,
+        "total_trades": 9251,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 10,
+        "test_groups": [
+          1,
+          3
+        ],
+        "n_train_bars": 651440,
+        "n_test_bars": 211230,
+        "expectancy": -1.2423314895822954,
+        "win_rate": 0.2691664522768202,
+        "profit_factor": 0.8298415462014687,
+        "annualized_sharpe": -14.306211606048931,
+        "total_trades": 15548,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 11,
+        "test_groups": [
+          1,
+          4
+        ],
+        "n_train_bars": 655345,
+        "n_test_bars": 207993,
+        "expectancy": -1.133896371494385,
+        "win_rate": 0.27248969745703083,
+        "profit_factor": 0.8439274878160477,
+        "annualized_sharpe": -10.549891606049998,
+        "total_trades": 9949,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 12,
+        "test_groups": [
+          1,
+          5
+        ],
+        "n_train_bars": 655348,
+        "n_test_bars": 211234,
+        "expectancy": -1.3438952579465284,
+        "win_rate": 0.2661803022407504,
+        "profit_factor": 0.8166796963133097,
+        "annualized_sharpe": -12.418886332707714,
+        "total_trades": 9595,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 13,
+        "test_groups": [
+          1,
+          6
+        ],
+        "n_train_bars": 652114,
+        "n_test_bars": 211224,
+        "expectancy": -1.0942829540570524,
+        "win_rate": 0.2738299699441821,
+        "profit_factor": 0.8491372370275374,
+        "annualized_sharpe": -10.299017810095522,
+        "total_trades": 9316,
+        "stage1_best_iter": 409,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 14,
+        "test_groups": [
+          1,
+          7
+        ],
+        "n_train_bars": 652094,
+        "n_test_bars": 211244,
+        "expectancy": -1.0822390420245847,
+        "win_rate": 0.27419792137370086,
+        "profit_factor": 0.8507413527336136,
+        "annualized_sharpe": -11.257062186975633,
+        "total_trades": 11065,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 15,
+        "test_groups": [
+          1,
+          8
+        ],
+        "n_train_bars": 647514,
+        "n_test_bars": 209235,
+        "expectancy": -1.2105641385767985,
+        "win_rate": 0.2702247191011236,
+        "profit_factor": 0.8339335219016396,
+        "annualized_sharpe": -12.806657895716539,
+        "total_trades": 10680,
+        "stage1_best_iter": 719,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 16,
+        "test_groups": [
+          1,
+          9
+        ],
+        "n_train_bars": 652093,
+        "n_test_bars": 205917,
+        "expectancy": -1.0801178956728592,
+        "win_rate": 0.27416305194082974,
+        "profit_factor": 0.8510410502443093,
+        "annualized_sharpe": -9.47403361218243,
+        "total_trades": 8991,
+        "stage1_best_iter": 829,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 17,
+        "test_groups": [
+          2,
+          3
+        ],
+        "n_train_bars": 656594,
+        "n_test_bars": 209986,
+        "expectancy": -1.311919441554325,
+        "win_rate": 0.26708289975719735,
+        "profit_factor": 0.820803873341721,
+        "annualized_sharpe": -12.475377357745764,
+        "total_trades": 11532,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 18,
+        "test_groups": [
+          2,
+          4
+        ],
+        "n_train_bars": 652679,
+        "n_test_bars": 206749,
+        "expectancy": -1.248418925745227,
+        "win_rate": 0.26906886681259473,
+        "profit_factor": 0.8288949687893666,
+        "annualized_sharpe": -9.926993657806912,
+        "total_trades": 5939,
+        "stage1_best_iter": 509,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 19,
+        "test_groups": [
+          2,
+          5
+        ],
+        "n_train_bars": 652682,
+        "n_test_bars": 209990,
+        "expectancy": -1.591996061582809,
+        "win_rate": 0.2586824203365557,
+        "profit_factor": 0.7849905701011474,
+        "annualized_sharpe": -11.796348248308988,
+        "total_trades": 5586,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 20,
+        "test_groups": [
+          2,
+          6
+        ],
+        "n_train_bars": 649448,
+        "n_test_bars": 209980,
+        "expectancy": -1.1703066037739878,
+        "win_rate": 0.27169811320754716,
+        "profit_factor": 0.8390789612791453,
+        "annualized_sharpe": -10.219378621982104,
+        "total_trades": 5300,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 21,
+        "test_groups": [
+          2,
+          7
+        ],
+        "n_train_bars": 649428,
+        "n_test_bars": 210000,
+        "expectancy": -1.1816003976141223,
+        "win_rate": 0.2712297642715138,
+        "profit_factor": 0.8376757723360801,
+        "annualized_sharpe": -10.764575713412974,
+        "total_trades": 7042,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 22,
+        "test_groups": [
+          2,
+          8
+        ],
+        "n_train_bars": 648758,
+        "n_test_bars": 207991,
+        "expectancy": -1.3436978697868909,
+        "win_rate": 0.2662766276627663,
+        "profit_factor": 0.8166192250197983,
+        "annualized_sharpe": -12.384408004636338,
+        "total_trades": 6666,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 319
+      },
+      {
+        "split_idx": 23,
+        "test_groups": [
+          2,
+          9
+        ],
+        "n_train_bars": 653337,
+        "n_test_bars": 204673,
+        "expectancy": -1.167497989546135,
+        "win_rate": 0.27161238439887414,
+        "profit_factor": 0.8395182675339291,
+        "annualized_sharpe": -8.734722072649953,
+        "total_trades": 4974,
+        "stage1_best_iter": 709,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 24,
+        "test_groups": [
+          3,
+          4
+        ],
+        "n_train_bars": 660499,
+        "n_test_bars": 206749,
+        "expectancy": -1.3682195421102314,
+        "win_rate": 0.2652493867538839,
+        "profit_factor": 0.8135253926164646,
+        "annualized_sharpe": -13.761584354665533,
+        "total_trades": 12230,
+        "stage1_best_iter": 489,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 25,
+        "test_groups": [
+          3,
+          5
+        ],
+        "n_train_bars": 655924,
+        "n_test_bars": 209990,
+        "expectancy": -1.5356287374721016,
+        "win_rate": 0.2601701339172913,
+        "profit_factor": 0.7922063890609591,
+        "annualized_sharpe": -15.51996340876573,
+        "total_trades": 11873,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 26,
+        "test_groups": [
+          3,
+          6
+        ],
+        "n_train_bars": 652690,
+        "n_test_bars": 209980,
+        "expectancy": -1.3568707952393306,
+        "win_rate": 0.26574090046575816,
+        "profit_factor": 0.8150014370363592,
+        "annualized_sharpe": -13.430912406240779,
+        "total_trades": 11594,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 27,
+        "test_groups": [
+          3,
+          7
+        ],
+        "n_train_bars": 652670,
+        "n_test_bars": 210000,
+        "expectancy": -1.3210732237987775,
+        "win_rate": 0.2667867056793458,
+        "profit_factor": 0.8196438021976581,
+        "annualized_sharpe": -14.600024603429224,
+        "total_trades": 13329,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 28,
+        "test_groups": [
+          3,
+          8
+        ],
+        "n_train_bars": 648090,
+        "n_test_bars": 207991,
+        "expectancy": -1.4120958523219203,
+        "win_rate": 0.2639993820962385,
+        "profit_factor": 0.8079296043238966,
+        "annualized_sharpe": -15.866325087809658,
+        "total_trades": 12947,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 29,
+        "test_groups": [
+          3,
+          9
+        ],
+        "n_train_bars": 652669,
+        "n_test_bars": 204673,
+        "expectancy": -1.3375712636535895,
+        "win_rate": 0.2662285765029749,
+        "profit_factor": 0.8175303465149497,
+        "annualized_sharpe": -12.361493087188501,
+        "total_trades": 11261,
+        "stage1_best_iter": 869,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 30,
+        "test_groups": [
+          4,
+          5
+        ],
+        "n_train_bars": 660495,
+        "n_test_bars": 206753,
+        "expectancy": -1.663063156220204,
+        "win_rate": 0.2561247216035635,
+        "profit_factor": 0.7759569393884383,
+        "annualized_sharpe": -12.958313347083108,
+        "total_trades": 6286,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 31,
+        "test_groups": [
+          4,
+          6
+        ],
+        "n_train_bars": 652685,
+        "n_test_bars": 206743,
+        "expectancy": -1.3138418596901822,
+        "win_rate": 0.2669555074154308,
+        "profit_factor": 0.8203393387590413,
+        "annualized_sharpe": -11.24637716044568,
+        "total_trades": 6001,
+        "stage1_best_iter": 569,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 32,
+        "test_groups": [
+          4,
+          7
+        ],
+        "n_train_bars": 652665,
+        "n_test_bars": 206763,
+        "expectancy": -1.2727884739626862,
+        "win_rate": 0.2682517121075074,
+        "profit_factor": 0.8257800852766418,
+        "annualized_sharpe": -11.797841714038427,
+        "total_trades": 7739,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 179
+      },
+      {
+        "split_idx": 33,
+        "test_groups": [
+          4,
+          8
+        ],
+        "n_train_bars": 651995,
+        "n_test_bars": 204754,
+        "expectancy": -1.4249082256965344,
+        "win_rate": 0.2636301835486064,
+        "profit_factor": 0.8061764899528395,
+        "annualized_sharpe": -13.315075245748384,
+        "total_trades": 7355,
+        "stage1_best_iter": 789,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 34,
+        "test_groups": [
+          4,
+          9
+        ],
+        "n_train_bars": 656574,
+        "n_test_bars": 201436,
+        "expectancy": -1.2822103685419577,
+        "win_rate": 0.2678539940045847,
+        "profit_factor": 0.8245462253652119,
+        "annualized_sharpe": -9.671130419762694,
+        "total_trades": 5671,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 35,
+        "test_groups": [
+          5,
+          6
+        ],
+        "n_train_bars": 660508,
+        "n_test_bars": 209984,
+        "expectancy": -1.6592532813056886,
+        "win_rate": 0.2566512947853849,
+        "profit_factor": 0.7765165432612801,
+        "annualized_sharpe": -13.195689914347415,
+        "total_trades": 5638,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 36,
+        "test_groups": [
+          5,
+          7
+        ],
+        "n_train_bars": 652668,
+        "n_test_bars": 210004,
+        "expectancy": -1.5160466061506515,
+        "win_rate": 0.26094025199837423,
+        "profit_factor": 0.794662857174344,
+        "annualized_sharpe": -13.662564454103464,
+        "total_trades": 7381,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 37,
+        "test_groups": [
+          5,
+          8
+        ],
+        "n_train_bars": 651998,
+        "n_test_bars": 207995,
+        "expectancy": -1.692792458220073,
+        "win_rate": 0.25553492358234536,
+        "profit_factor": 0.7723504023213776,
+        "annualized_sharpe": -15.581103962635847,
+        "total_trades": 7001,
+        "stage1_best_iter": 649,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 38,
+        "test_groups": [
+          5,
+          9
+        ],
+        "n_train_bars": 656577,
+        "n_test_bars": 204677,
+        "expectancy": -1.6253303840364928,
+        "win_rate": 0.2575301204819277,
+        "profit_factor": 0.7808722769422151,
+        "annualized_sharpe": -11.360787132148593,
+        "total_trades": 5312,
+        "stage1_best_iter": 729,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 39,
+        "test_groups": [
+          6,
+          7
+        ],
+        "n_train_bars": 657254,
+        "n_test_bars": 209994,
+        "expectancy": -1.2254651162788641,
+        "win_rate": 0.26990838618745594,
+        "profit_factor": 0.8319526976031094,
+        "annualized_sharpe": -11.88686413353327,
+        "total_trades": 7095,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 40,
+        "test_groups": [
+          6,
+          8
+        ],
+        "n_train_bars": 648764,
+        "n_test_bars": 207985,
+        "expectancy": -1.4302416356876273,
+        "win_rate": 0.2636431226765799,
+        "profit_factor": 0.805504642996246,
+        "annualized_sharpe": -14.174384689673351,
+        "total_trades": 6725,
+        "stage1_best_iter": 749,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 41,
+        "test_groups": [
+          6,
+          9
+        ],
+        "n_train_bars": 653343,
+        "n_test_bars": 204667,
+        "expectancy": -1.260626242545202,
+        "win_rate": 0.2687872763419483,
+        "profit_factor": 0.8273841980025272,
+        "annualized_sharpe": -10.24440707741506,
+        "total_trades": 5030,
+        "stage1_best_iter": 959,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 42,
+        "test_groups": [
+          7,
+          8
+        ],
+        "n_train_bars": 652673,
+        "n_test_bars": 208005,
+        "expectancy": -1.3465416420550207,
+        "win_rate": 0.2661547548730065,
+        "profit_factor": 0.816319548768948,
+        "annualized_sharpe": -14.260747306202834,
+        "total_trades": 8465,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 339
+      },
+      {
+        "split_idx": 43,
+        "test_groups": [
+          7,
+          9
+        ],
+        "n_train_bars": 656583,
+        "n_test_bars": 204687,
+        "expectancy": -1.2090594059404771,
+        "win_rate": 0.2702822521058076,
+        "profit_factor": 0.8341455063812419,
+        "annualized_sharpe": -10.49384955820388,
+        "total_trades": 6767,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 44,
+        "test_groups": [
+          8,
+          9
+        ],
+        "n_train_bars": 661158,
+        "n_test_bars": 202678,
+        "expectancy": -1.383214900610422,
+        "win_rate": 0.26498669588354984,
+        "profit_factor": 0.811614996131516,
+        "annualized_sharpe": -12.125422714293736,
+        "total_trades": 6389,
+        "stage1_best_iter": 619,
+        "stage2_best_iter": 289
+      }
+    ]
+  },
+  "serial_pessimistic": {
+    "mean_expectancy": -5.07506025663044,
+    "std_expectancy": 0.16036667131505666,
+    "ci_95": [
+      -5.123230951193603,
+      -5.026889562067277
+    ],
+    "negative_fold_fraction": 1.0,
+    "annualized_sharpe": -16.051300858347513,
+    "deflated_sharpe": 0.0,
+    "pooled_profit_factor": 0.0,
+    "pooled_win_rate": 0.26692218021659,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0,
+          1
+        ],
+        "n_train_bars": 663261,
+        "n_test_bars": 207897,
+        "expectancy": -4.907127071824568,
+        "win_rate": 0.27183813647902044,
+        "profit_factor": 0.5095160559353231,
+        "annualized_sharpe": -17.22924119290364,
+        "total_trades": 13394,
+        "stage1_best_iter": 399,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 1,
+        "test_groups": [
+          0,
+          2
+        ],
+        "n_train_bars": 656685,
+        "n_test_bars": 206653,
+        "expectancy": -4.996060202451511,
+        "win_rate": 0.2690463505594033,
+        "profit_factor": 0.5024293274500624,
+        "annualized_sharpe": -13.81292080004174,
+        "total_trades": 9385,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 2,
+        "test_groups": [
+          0,
+          3
+        ],
+        "n_train_bars": 659927,
+        "n_test_bars": 206653,
+        "expectancy": -5.10070699336426,
+        "win_rate": 0.2658244002041858,
+        "profit_factor": 0.4943173687945294,
+        "annualized_sharpe": -19.466383591199655,
+        "total_trades": 15672,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 3,
+        "test_groups": [
+          0,
+          4
+        ],
+        "n_train_bars": 659922,
+        "n_test_bars": 203416,
+        "expectancy": -5.07814420218136,
+        "win_rate": 0.266402378592666,
+        "profit_factor": 0.49594652309564174,
+        "annualized_sharpe": -14.690595563731748,
+        "total_trades": 10090,
+        "stage1_best_iter": 539,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 4,
+        "test_groups": [
+          0,
+          5
+        ],
+        "n_train_bars": 659925,
+        "n_test_bars": 206657,
+        "expectancy": -5.246105398458517,
+        "win_rate": 0.26138817480719795,
+        "profit_factor": 0.4829756036162845,
+        "annualized_sharpe": -15.6619191100974,
+        "total_trades": 9725,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 5,
+        "test_groups": [
+          0,
+          6
+        ],
+        "n_train_bars": 656691,
+        "n_test_bars": 206647,
+        "expectancy": -5.059003387319547,
+        "win_rate": 0.2670689107653223,
+        "profit_factor": 0.4974220383489679,
+        "annualized_sharpe": -14.13226941003716,
+        "total_trades": 9447,
+        "stage1_best_iter": 469,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 6,
+        "test_groups": [
+          0,
+          7
+        ],
+        "n_train_bars": 656671,
+        "n_test_bars": 206667,
+        "expectancy": -4.994361635502665,
+        "win_rate": 0.2691240941218574,
+        "profit_factor": 0.5025784670897331,
+        "annualized_sharpe": -16.499897876951042,
+        "total_trades": 11177,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 7,
+        "test_groups": [
+          0,
+          8
+        ],
+        "n_train_bars": 656001,
+        "n_test_bars": 204658,
+        "expectancy": -5.113946856773663,
+        "win_rate": 0.2655309693546894,
+        "profit_factor": 0.49316020905353625,
+        "annualized_sharpe": -16.614087461260468,
+        "total_trades": 10801,
+        "stage1_best_iter": 799,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 8,
+        "test_groups": [
+          0,
+          9
+        ],
+        "n_train_bars": 660580,
+        "n_test_bars": 201340,
+        "expectancy": -4.994046417206904,
+        "win_rate": 0.26917590255678703,
+        "profit_factor": 0.5026129061695518,
+        "annualized_sharpe": -13.325637050743305,
+        "total_trades": 9113,
+        "stage1_best_iter": 899,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 9,
+        "test_groups": [
+          1,
+          2
+        ],
+        "n_train_bars": 656018,
+        "n_test_bars": 211230,
+        "expectancy": -4.798601772782032,
+        "win_rate": 0.2751053940114582,
+        "profit_factor": 0.518117123122652,
+        "annualized_sharpe": -15.740008591348621,
+        "total_trades": 9251,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 10,
+        "test_groups": [
+          1,
+          3
+        ],
+        "n_train_bars": 651440,
+        "n_test_bars": 211230,
+        "expectancy": -4.992331489581047,
+        "win_rate": 0.2691664522768202,
+        "profit_factor": 0.5028376785606307,
+        "annualized_sharpe": -20.891820803448233,
+        "total_trades": 15548,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 11,
+        "test_groups": [
+          1,
+          4
+        ],
+        "n_train_bars": 655345,
+        "n_test_bars": 207993,
+        "expectancy": -4.88389637149553,
+        "win_rate": 0.27238918484269775,
+        "profit_factor": 0.5112946864309903,
+        "annualized_sharpe": -16.59532396190763,
+        "total_trades": 9949,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 12,
+        "test_groups": [
+          1,
+          5
+        ],
+        "n_train_bars": 655348,
+        "n_test_bars": 211234,
+        "expectancy": -5.093895257947715,
+        "win_rate": 0.2661803022407504,
+        "profit_factor": 0.49478770321549875,
+        "annualized_sharpe": -17.57415041926775,
+        "total_trades": 9595,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 13,
+        "test_groups": [
+          1,
+          6
+        ],
+        "n_train_bars": 652114,
+        "n_test_bars": 211224,
+        "expectancy": -4.844282954058274,
+        "win_rate": 0.2737226277372263,
+        "profit_factor": 0.5144502911619049,
+        "annualized_sharpe": -16.07486953983411,
+        "total_trades": 9316,
+        "stage1_best_iter": 409,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 14,
+        "test_groups": [
+          1,
+          7
+        ],
+        "n_train_bars": 652094,
+        "n_test_bars": 211244,
+        "expectancy": -4.832239042025535,
+        "win_rate": 0.27410754631721646,
+        "profit_factor": 0.5154582429364185,
+        "annualized_sharpe": -18.350686113659318,
+        "total_trades": 11065,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 15,
+        "test_groups": [
+          1,
+          8
+        ],
+        "n_train_bars": 647514,
+        "n_test_bars": 209235,
+        "expectancy": -4.960564138577864,
+        "win_rate": 0.2702247191011236,
+        "profit_factor": 0.5052444504294905,
+        "annualized_sharpe": -18.72071483665284,
+        "total_trades": 10680,
+        "stage1_best_iter": 719,
+        "stage2_best_iter": 259
+      },
+      {
+        "split_idx": 16,
+        "test_groups": [
+          1,
+          9
+        ],
+        "n_train_bars": 652093,
+        "n_test_bars": 205917,
+        "expectancy": -4.830117895674096,
+        "win_rate": 0.27416305194082974,
+        "profit_factor": 0.5156805317080924,
+        "annualized_sharpe": -15.044130764364061,
+        "total_trades": 8991,
+        "stage1_best_iter": 829,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 17,
+        "test_groups": [
+          2,
+          3
+        ],
+        "n_train_bars": 656594,
+        "n_test_bars": 209986,
+        "expectancy": -5.061919441555205,
+        "win_rate": 0.26699618453000346,
+        "profit_factor": 0.4973191066524292,
+        "annualized_sharpe": -16.707767320048596,
+        "total_trades": 11532,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 18,
+        "test_groups": [
+          2,
+          4
+        ],
+        "n_train_bars": 652679,
+        "n_test_bars": 206749,
+        "expectancy": -4.998418925744854,
+        "win_rate": 0.2687321097827917,
+        "profit_factor": 0.5020525129644454,
+        "annualized_sharpe": -17.62665418925627,
+        "total_trades": 5939,
+        "stage1_best_iter": 509,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 19,
+        "test_groups": [
+          2,
+          5
+        ],
+        "n_train_bars": 652682,
+        "n_test_bars": 209990,
+        "expectancy": -5.341996061582322,
+        "win_rate": 0.2585034013605442,
+        "profit_factor": 0.47549362102062187,
+        "annualized_sharpe": -20.629235442984715,
+        "total_trades": 5586,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 20,
+        "test_groups": [
+          2,
+          6
+        ],
+        "n_train_bars": 649448,
+        "n_test_bars": 209980,
+        "expectancy": -4.920306603773475,
+        "win_rate": 0.27132075471698114,
+        "profit_factor": 0.5082025258589641,
+        "annualized_sharpe": -20.324558507114563,
+        "total_trades": 5300,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 21,
+        "test_groups": [
+          2,
+          7
+        ],
+        "n_train_bars": 649428,
+        "n_test_bars": 210000,
+        "expectancy": -4.931600397614262,
+        "win_rate": 0.2709457540471457,
+        "profit_factor": 0.5074819053297224,
+        "annualized_sharpe": -18.517375487996336,
+        "total_trades": 7042,
+        "stage1_best_iter": 419,
+        "stage2_best_iter": 219
+      },
+      {
+        "split_idx": 22,
+        "test_groups": [
+          2,
+          8
+        ],
+        "n_train_bars": 648758,
+        "n_test_bars": 207991,
+        "expectancy": -5.093697869786774,
+        "win_rate": 0.26612661266126614,
+        "profit_factor": 0.49463748154820475,
+        "annualized_sharpe": -19.662163733326672,
+        "total_trades": 6666,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 319
+      },
+      {
+        "split_idx": 23,
+        "test_groups": [
+          2,
+          9
+        ],
+        "n_train_bars": 653337,
+        "n_test_bars": 204673,
+        "expectancy": -4.9174979895455895,
+        "win_rate": 0.27141133896260555,
+        "profit_factor": 0.508596080643677,
+        "annualized_sharpe": -17.943521733993506,
+        "total_trades": 4974,
+        "stage1_best_iter": 709,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 24,
+        "test_groups": [
+          3,
+          4
+        ],
+        "n_train_bars": 660499,
+        "n_test_bars": 206749,
+        "expectancy": -5.118219542110965,
+        "win_rate": 0.2651676206050695,
+        "profit_factor": 0.4928822779334878,
+        "annualized_sharpe": -17.831202993872868,
+        "total_trades": 12230,
+        "stage1_best_iter": 489,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 25,
+        "test_groups": [
+          3,
+          5
+        ],
+        "n_train_bars": 655924,
+        "n_test_bars": 209990,
+        "expectancy": -5.285628737472951,
+        "win_rate": 0.2601701339172913,
+        "profit_factor": 0.47999256898684695,
+        "annualized_sharpe": -18.474706689080094,
+        "total_trades": 11873,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 26,
+        "test_groups": [
+          3,
+          6
+        ],
+        "n_train_bars": 652690,
+        "n_test_bars": 209980,
+        "expectancy": -5.106870795240207,
+        "win_rate": 0.2656546489563567,
+        "profit_factor": 0.4937768013572347,
+        "annualized_sharpe": -17.075076856168018,
+        "total_trades": 11594,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 27,
+        "test_groups": [
+          3,
+          7
+        ],
+        "n_train_bars": 652670,
+        "n_test_bars": 210000,
+        "expectancy": -5.071073223799058,
+        "win_rate": 0.2667116812964213,
+        "profit_factor": 0.49664690471433764,
+        "annualized_sharpe": -19.771183037545274,
+        "total_trades": 13329,
+        "stage1_best_iter": 439,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 28,
+        "test_groups": [
+          3,
+          8
+        ],
+        "n_train_bars": 648090,
+        "n_test_bars": 207991,
+        "expectancy": -5.162095852322514,
+        "win_rate": 0.2639993820962385,
+        "profit_factor": 0.4895065456529924,
+        "annualized_sharpe": -19.838887017952402,
+        "total_trades": 12947,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 249
+      },
+      {
+        "split_idx": 29,
+        "test_groups": [
+          3,
+          9
+        ],
+        "n_train_bars": 652669,
+        "n_test_bars": 204673,
+        "expectancy": -5.087571263654543,
+        "win_rate": 0.2662285765029749,
+        "profit_factor": 0.4953817204101642,
+        "annualized_sharpe": -16.04644675121082,
+        "total_trades": 11261,
+        "stage1_best_iter": 869,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 30,
+        "test_groups": [
+          4,
+          5
+        ],
+        "n_train_bars": 660495,
+        "n_test_bars": 206753,
+        "expectancy": -5.4130631562198595,
+        "win_rate": 0.25596563792554883,
+        "profit_factor": 0.46997220534941125,
+        "annualized_sharpe": -19.092230458755413,
+        "total_trades": 6286,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 189
+      },
+      {
+        "split_idx": 31,
+        "test_groups": [
+          4,
+          6
+        ],
+        "n_train_bars": 652685,
+        "n_test_bars": 206743,
+        "expectancy": -5.0638418596898145,
+        "win_rate": 0.26662222962839527,
+        "profit_factor": 0.49676357839354296,
+        "annualized_sharpe": -17.991136676930633,
+        "total_trades": 6001,
+        "stage1_best_iter": 569,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 32,
+        "test_groups": [
+          4,
+          7
+        ],
+        "n_train_bars": 652665,
+        "n_test_bars": 206763,
+        "expectancy": -5.02278847396331,
+        "win_rate": 0.2679932807856312,
+        "profit_factor": 0.5002370801598195,
+        "annualized_sharpe": -18.400430456086575,
+        "total_trades": 7739,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 179
+      },
+      {
+        "split_idx": 33,
+        "test_groups": [
+          4,
+          8
+        ],
+        "n_train_bars": 651995,
+        "n_test_bars": 204754,
+        "expectancy": -5.174908225696945,
+        "win_rate": 0.263494221617947,
+        "profit_factor": 0.4883024219137912,
+        "annualized_sharpe": -19.149030494669258,
+        "total_trades": 7355,
+        "stage1_best_iter": 789,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 34,
+        "test_groups": [
+          4,
+          9
+        ],
+        "n_train_bars": 656574,
+        "n_test_bars": 201436,
+        "expectancy": -5.032210368541519,
+        "win_rate": 0.26767765826132955,
+        "profit_factor": 0.49947395740567896,
+        "annualized_sharpe": -16.16301388433712,
+        "total_trades": 5671,
+        "stage1_best_iter": 759,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 35,
+        "test_groups": [
+          5,
+          6
+        ],
+        "n_train_bars": 660508,
+        "n_test_bars": 209984,
+        "expectancy": -5.409253281305206,
+        "win_rate": 0.25647392692444126,
+        "profit_factor": 0.4703302020491164,
+        "annualized_sharpe": -20.919358103400008,
+        "total_trades": 5638,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 36,
+        "test_groups": [
+          5,
+          7
+        ],
+        "n_train_bars": 652668,
+        "n_test_bars": 210004,
+        "expectancy": -5.266046606151102,
+        "win_rate": 0.2608047690014903,
+        "profit_factor": 0.4814383839116797,
+        "annualized_sharpe": -20.192382401720327,
+        "total_trades": 7381,
+        "stage1_best_iter": 459,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 37,
+        "test_groups": [
+          5,
+          8
+        ],
+        "n_train_bars": 651998,
+        "n_test_bars": 207995,
+        "expectancy": -5.442792458220296,
+        "win_rate": 0.25553492358234536,
+        "profit_factor": 0.4678380981655562,
+        "annualized_sharpe": -21.342551925750563,
+        "total_trades": 7001,
+        "stage1_best_iter": 649,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 38,
+        "test_groups": [
+          5,
+          9
+        ],
+        "n_train_bars": 656577,
+        "n_test_bars": 204677,
+        "expectancy": -5.375330384035981,
+        "win_rate": 0.2575301204819277,
+        "profit_factor": 0.4730861795855234,
+        "annualized_sharpe": -18.451465292694845,
+        "total_trades": 5312,
+        "stage1_best_iter": 729,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 39,
+        "test_groups": [
+          6,
+          7
+        ],
+        "n_train_bars": 657254,
+        "n_test_bars": 209994,
+        "expectancy": -4.975465116279052,
+        "win_rate": 0.2696264975334743,
+        "profit_factor": 0.5039918825410437,
+        "annualized_sharpe": -18.78140424233694,
+        "total_trades": 7095,
+        "stage1_best_iter": 449,
+        "stage2_best_iter": 199
+      },
+      {
+        "split_idx": 40,
+        "test_groups": [
+          6,
+          8
+        ],
+        "n_train_bars": 648764,
+        "n_test_bars": 207985,
+        "expectancy": -5.180241635687578,
+        "win_rate": 0.2634944237918216,
+        "profit_factor": 0.48788115686668393,
+        "annualized_sharpe": -20.17853649365791,
+        "total_trades": 6725,
+        "stage1_best_iter": 749,
+        "stage2_best_iter": 229
+      },
+      {
+        "split_idx": 41,
+        "test_groups": [
+          6,
+          9
+        ],
+        "n_train_bars": 653343,
+        "n_test_bars": 204667,
+        "expectancy": -5.010626242544662,
+        "win_rate": 0.26858846918489065,
+        "profit_factor": 0.5012127578644197,
+        "annualized_sharpe": -18.28941276840651,
+        "total_trades": 5030,
+        "stage1_best_iter": 959,
+        "stage2_best_iter": 209
+      },
+      {
+        "split_idx": 42,
+        "test_groups": [
+          7,
+          8
+        ],
+        "n_train_bars": 652673,
+        "n_test_bars": 208005,
+        "expectancy": -5.096541642056064,
+        "win_rate": 0.26603662138216183,
+        "profit_factor": 0.4945501751994823,
+        "annualized_sharpe": -20.7887010656707,
+        "total_trades": 8465,
+        "stage1_best_iter": 479,
+        "stage2_best_iter": 339
+      },
+      {
+        "split_idx": 43,
+        "test_groups": [
+          7,
+          9
+        ],
+        "n_train_bars": 656583,
+        "n_test_bars": 204687,
+        "expectancy": -4.959059405940412,
+        "win_rate": 0.27013447613418057,
+        "profit_factor": 0.5054186559758286,
+        "annualized_sharpe": -17.065830682565846,
+        "total_trades": 6767,
+        "stage1_best_iter": 529,
+        "stage2_best_iter": 239
+      },
+      {
+        "split_idx": 44,
+        "test_groups": [
+          8,
+          9
+        ],
+        "n_train_bars": 661158,
+        "n_test_bars": 202678,
+        "expectancy": -5.13321490061013,
+        "win_rate": 0.26498669588354984,
+        "profit_factor": 0.4916999716294698,
+        "annualized_sharpe": -18.02623612727691,
+        "total_trades": 6389,
+        "stage1_best_iter": 619,
+        "stage2_best_iter": 289
+      }
+    ]
+  },
+  "serial_ljung_box": {
+    "q_statistic": 1015.6608869348576,
+    "p_value": 0.0,
+    "max_lag": 10
+  }
+}

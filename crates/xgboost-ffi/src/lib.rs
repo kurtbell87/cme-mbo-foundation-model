@@ -1,7 +1,9 @@
-//! Pure-Rust XGBoost model loader and predictor.
+//! XGBoost model loader, predictor, and training FFI.
 //!
-//! Parses XGBoost JSON model files (format version [2,1,x]) and performs
-//! gradient-boosted tree inference without requiring the XGBoost C library.
+//! - Pure-Rust JSON model inference (no C dependency).
+//! - Raw C FFI wrappers for XGBoost training via libxgboost (in `training` module).
+
+pub mod training;
 
 use serde::Deserialize;
 use std::fs;

@@ -2,7 +2,7 @@ use std::fs::File;
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
-use arrow::array::{ArrayRef, BooleanArray, Float64Array, Int64Array, StringArray};
+use arrow::array::{ArrayRef, BooleanArray, Float32Array, Float64Array, Int64Array, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use clap::Parser;
@@ -67,6 +67,14 @@ struct Args {
     /// Trading date (YYYYMMDD format) — used to compute RTH boundaries
     #[arg(long)]
     date: String,
+
+    /// Also emit a tick-level mid-price series as {output_stem}-ticks.parquet
+    #[arg(long)]
+    emit_tick_series: bool,
+
+    /// Run label-agreement diagnostic comparing tick-level vs bar-level barrier outcomes
+    #[arg(long)]
+    label_diagnostic: bool,
 }
 
 fn main() -> Result<()> {
@@ -214,6 +222,7 @@ fn main() -> Result<()> {
         &bidir_results,
         &valid_indices,
         args.legacy_labels,
+        tb_cfg.tick_size as f64,
     )?;
 
     eprintln!(
@@ -221,6 +230,35 @@ fn main() -> Result<()> {
         valid_indices.len(),
         args.output
     );
+
+    // -----------------------------------------------------------------------
+    // Step 8 (optional): Emit tick-level mid-price series Parquet
+    // -----------------------------------------------------------------------
+    if args.emit_tick_series {
+        let tick_path = args.output.replace(".parquet", "-ticks.parquet");
+        eprintln!(
+            "[tick-series] Writing {} tick mids to {}",
+            ingest.tick_mids.len(),
+            tick_path
+        );
+        write_tick_series_parquet(&tick_path, &ingest.tick_mids)?;
+        eprintln!("[tick-series] Done.");
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 9 (optional): Label-agreement diagnostic
+    // -----------------------------------------------------------------------
+    if args.label_diagnostic {
+        eprintln!("[label-diagnostic] Running tick-level vs bar-level label comparison...");
+        run_label_diagnostic(
+            &bars,
+            &tb_results,
+            &valid_indices,
+            &ingest.tick_mids,
+            &tb_cfg,
+        );
+    }
+
     Ok(())
 }
 
@@ -507,6 +545,7 @@ fn write_parquet(
     bidir_results: &[Option<BidirectionalTBResult>],
     valid_indices: &[usize],
     legacy_labels: bool,
+    tick_size: f64,
 ) -> Result<()> {
     let feature_names = BarFeatureRow::feature_names();
 
@@ -553,6 +592,10 @@ fn write_parquet(
     // MBO event count (1)
     fields.push(Field::new("mbo_event_count", DataType::Float64, true));
 
+    // Raw mid price and forward return (2)
+    fields.push(Field::new("close_mid", DataType::Float64, false));
+    fields.push(Field::new("fwd_return_720", DataType::Float64, true));
+
     // Label columns (3)
     fields.push(Field::new("tb_label", DataType::Float64, true));
     fields.push(Field::new("tb_exit_type", DataType::Utf8, true));
@@ -591,6 +634,8 @@ fn write_parquet(
     let mut col_fwd100: Vec<f64> = Vec::with_capacity(n);
 
     let mut col_mbo_count: Vec<f64> = Vec::with_capacity(n);
+    let mut col_close_mid: Vec<f64> = Vec::with_capacity(n);
+    let mut col_fwd_720: Vec<f64> = Vec::with_capacity(n);
 
     let mut col_tb_label: Vec<f64> = Vec::with_capacity(n);
     let mut col_tb_exit: Vec<String> = Vec::with_capacity(n);
@@ -635,6 +680,14 @@ fn write_parquet(
         col_fwd100.push(row.fwd_return_100 as f64);
 
         col_mbo_count.push((bar.mbo_event_end - bar.mbo_event_begin) as f64);
+
+        col_close_mid.push(bar.close_mid as f64);
+        let fwd_720 = if i + 720 < bars.len() {
+            ((bars[i + 720].close_mid - bar.close_mid) / tick_size as f32) as f64
+        } else {
+            f64::NAN
+        };
+        col_fwd_720.push(fwd_720);
 
         if let Some(ref tb) = tb_results[i] {
             col_tb_label.push(tb.label as f64);
@@ -692,6 +745,8 @@ fn write_parquet(
     columns.push(Arc::new(Float64Array::from(col_fwd100)));
 
     columns.push(Arc::new(Float64Array::from(col_mbo_count)));
+    columns.push(Arc::new(Float64Array::from(col_close_mid)));
+    columns.push(Arc::new(Float64Array::from(col_fwd_720)));
 
     columns.push(Arc::new(Float64Array::from(col_tb_label)));
     columns.push(Arc::new(StringArray::from(
@@ -724,4 +779,193 @@ fn write_parquet(
     writer.close().context("Failed to close writer")?;
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tick-level mid-price series Parquet writer
+// ---------------------------------------------------------------------------
+
+fn write_tick_series_parquet(path: &str, tick_mids: &[(u64, f32)]) -> Result<()> {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("timestamp_ns", DataType::UInt64, false),
+        Field::new("mid_price", DataType::Float32, false),
+    ]));
+
+    let timestamps: Vec<u64> = tick_mids.iter().map(|(ts, _)| *ts).collect();
+    let prices: Vec<f32> = tick_mids.iter().map(|(_, p)| *p).collect();
+
+    let columns: Vec<ArrayRef> = vec![
+        Arc::new(UInt64Array::from(timestamps)),
+        Arc::new(Float32Array::from(prices)),
+    ];
+
+    let batch =
+        RecordBatch::try_new(schema.clone(), columns).context("Failed to create tick RecordBatch")?;
+
+    let file = File::create(path).context("Failed to create tick series file")?;
+    let props = WriterProperties::builder()
+        .set_compression(Compression::ZSTD(Default::default()))
+        .build();
+
+    let mut writer =
+        ArrowWriter::try_new(file, schema, Some(props)).context("Failed to create tick ArrowWriter")?;
+    writer.write(&batch).context("Failed to write tick batch")?;
+    writer.close().context("Failed to close tick writer")?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Label-agreement diagnostic
+// ---------------------------------------------------------------------------
+
+fn run_label_diagnostic(
+    bars: &[Bar],
+    tb_results: &[Option<TripleBarrierResult>],
+    valid_indices: &[usize],
+    tick_mids: &[(u64, f32)],
+    tb_cfg: &TripleBarrierConfig,
+) {
+    if tick_mids.is_empty() {
+        eprintln!("[label-diagnostic] No tick mids available, skipping.");
+        return;
+    }
+
+    let target_ticks = tb_cfg.target_ticks as f64;
+    let stop_ticks = tb_cfg.stop_ticks as f64;
+    let tick_size = tb_cfg.tick_size as f64;
+    let horizon_ns: u64 = tb_cfg.max_time_horizon_s as u64 * 1_000_000_000;
+
+    let mut total = 0u64;
+    let mut agree = 0u64;
+    let mut target_stop_flips = 0u64; // bar says target, tick says stop (or vice versa)
+    let mut per_label_total = [0u64; 3]; // index: 0=neg, 1=zero, 2=pos
+    let mut per_label_agree = [0u64; 3];
+
+    for &i in valid_indices {
+        let tb = match &tb_results[i] {
+            Some(tb) => tb,
+            None => continue,
+        };
+
+        let bar_label = tb.label;
+        let bar_exit = &tb.exit_type;
+        let bar_ts = bars[i].close_ts;
+
+        // Find entry tick via binary search
+        let entry_idx = tick_mids.partition_point(|(ts, _)| *ts <= bar_ts);
+        if entry_idx == 0 {
+            continue;
+        }
+        let entry_price = tick_mids[entry_idx - 1].1 as f64;
+        let horizon_ts = bar_ts + horizon_ns;
+
+        // Walk ticks to find tick-level barrier outcome
+        let mut tick_exit = "horizon";
+        let mut tick_label = 0i32;
+
+        for &(ts, price) in &tick_mids[entry_idx..] {
+            if ts > horizon_ts {
+                break;
+            }
+            let move_ticks_long = (price as f64 - entry_price) / tick_size;
+            let move_ticks_short = -(price as f64 - entry_price) / tick_size;
+
+            // Check long target/stop
+            if move_ticks_long >= target_ticks {
+                tick_exit = "target";
+                tick_label = 1;
+                break;
+            }
+            if move_ticks_short >= target_ticks {
+                tick_exit = "target";
+                tick_label = -1;
+                break;
+            }
+            if move_ticks_long <= -stop_ticks {
+                // Long would be stopped out
+                if move_ticks_short >= target_ticks {
+                    tick_exit = "target";
+                    tick_label = -1;
+                } else {
+                    tick_exit = "stop";
+                    tick_label = -1;
+                }
+                break;
+            }
+            if move_ticks_short <= -stop_ticks {
+                if move_ticks_long >= target_ticks {
+                    tick_exit = "target";
+                    tick_label = 1;
+                } else {
+                    tick_exit = "stop";
+                    tick_label = 1;
+                }
+                break;
+            }
+        }
+
+        let label_idx = match bar_label {
+            l if l < 0 => 0,
+            0 => 1,
+            _ => 2,
+        };
+        per_label_total[label_idx] += 1;
+
+        let labels_agree = bar_label == tick_label;
+        if labels_agree {
+            agree += 1;
+            per_label_agree[label_idx] += 1;
+        }
+
+        // Detect target↔stop flips
+        let bar_is_target = bar_exit == "target";
+        let bar_is_stop = bar_exit == "stop";
+        let tick_is_target = tick_exit == "target";
+        let tick_is_stop = tick_exit == "stop";
+        if (bar_is_target && tick_is_stop) || (bar_is_stop && tick_is_target) {
+            target_stop_flips += 1;
+        }
+
+        total += 1;
+    }
+
+    if total == 0 {
+        eprintln!("[label-diagnostic] No valid bars to compare.");
+        return;
+    }
+
+    let agreement_rate = agree as f64 / total as f64 * 100.0;
+    let flip_rate = target_stop_flips as f64 / total as f64 * 100.0;
+
+    eprintln!();
+    eprintln!("══════════════════════════════════════════");
+    eprintln!("  Label-Agreement Diagnostic");
+    eprintln!("══════════════════════════════════════════");
+    eprintln!("  Total bars compared:     {}", total);
+    eprintln!("  Agreement rate:          {:.1}%", agreement_rate);
+    eprintln!(
+        "  Target↔stop flip rate:   {:.1}% ({} flips)",
+        flip_rate, target_stop_flips
+    );
+    eprintln!();
+    for (idx, name) in [(0, "label=-1"), (1, "label=0"), (2, "label=+1")].iter() {
+        if per_label_total[*idx] > 0 {
+            let rate = per_label_agree[*idx] as f64 / per_label_total[*idx] as f64 * 100.0;
+            eprintln!(
+                "  {} — {:.1}% agreement ({}/{})",
+                name, rate, per_label_agree[*idx], per_label_total[*idx]
+            );
+        }
+    }
+    eprintln!();
+
+    if flip_rate <= 5.0 {
+        eprintln!("  GATE: GREEN — target↔stop flip rate ≤ 5%. Proceed with tick-level serial sim.");
+    } else if flip_rate <= 10.0 {
+        eprintln!("  GATE: CAUTION — target↔stop flip rate 5-10%. Proceed with caution, flag in report.");
+    } else {
+        eprintln!("  GATE: STOP — target↔stop flip rate > 10%. Model needs retraining on tick-level labels.");
+    }
+    eprintln!("══════════════════════════════════════════");
 }
