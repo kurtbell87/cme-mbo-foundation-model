@@ -22,6 +22,7 @@ members = [
     "tools/subordination-test",
     "tools/info-decomposition",
     "tools/parity-test",
+    "tools/cpcv-backtest",
     "tools/rithmic-live",
 ]
 
@@ -76,6 +77,9 @@ criterion = "0.5"
 # Error handling
 thiserror = "2"
 anyhow = "1"
+
+# Parallelism
+rayon = "1"
 
 # Testing
 tempfile = "3"

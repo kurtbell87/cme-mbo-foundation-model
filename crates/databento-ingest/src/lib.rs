@@ -39,6 +39,8 @@ pub struct DayIngestResult {
     pub total_records: u64,
     /// Number of MBO records matching the target instrument.
     pub instrument_records: u64,
+    /// Tick-level mid-prices at every F_LAST boundary during RTH.
+    pub tick_mids: Vec<(u64, f32)>,
 }
 
 /// Convert a Databento action char to the integer code used in `MBOEvent`.
@@ -139,6 +141,13 @@ pub fn ingest_day_file(
         None => return Err(IngestError::NoRecords(instrument_id)),
     };
 
+    // Extract tick-level mid-prices and filter to RTH range
+    let all_tick_mids = builder.take_tick_mid_prices();
+    let tick_mids: Vec<(u64, f32)> = all_tick_mids
+        .into_iter()
+        .filter(|(ts, _)| *ts >= rth_open && *ts < rth_close)
+        .collect();
+
     // Emit snapshots during RTH
     let snapshots = builder.emit_snapshots(rth_open, rth_close);
 
@@ -149,6 +158,7 @@ pub fn ingest_day_file(
         last_ts,
         total_records,
         instrument_records,
+        tick_mids,
     })
 }
 
