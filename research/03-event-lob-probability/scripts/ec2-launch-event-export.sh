@@ -170,16 +170,15 @@ mkdir -p src && echo "use xgboost_sys;" > src/lib.rs
 cargo build --release --target-dir ${WORK}/src/target 2>&1 | tail -5
 echo "xgboost-sys pre-built"
 
-# ── Build event-export + event-backtest (release) ──
-echo "=== Building event-export + event-backtest ==="
+# ── Build event-export (release) ──
+echo "=== Building event-export ==="
 cd ${WORK}/src
 BUILD_START=$(date +%s)
-cargo build --release --package event-export --package event-backtest 2>&1 | tail -20
+cargo build --release --package event-export 2>&1 | tail -20
 BUILD_END=$(date +%s)
 echo "Build completed in $((BUILD_END - BUILD_START))s"
 
 EXPORT_BIN=${WORK}/src/target/release/event-export
-BACKTEST_BIN=${WORK}/src/target/release/event-backtest
 
 # ── Instrument ID lookup ──
 get_instrument_id() {
@@ -288,49 +287,8 @@ if [[ "$FULL_EXPORT" != "true" ]]; then
     echo "  All-commits Parquets: ${ALL_COUNT}"
 fi
 
-# ── Run baseline analysis (event-backtest) ──
-echo "=== Running baseline analysis (BBO-change) ==="
-cd ${WORK}/src
-${BACKTEST_BIN} \
-    --data-dir ${WORK}/events-bbo \
-    --output-dir ${WORK}/results/baseline-bbo \
-    2>&1
-
-if [[ "$FULL_EXPORT" != "true" ]]; then
-    echo "=== Running baseline analysis (all-commits) ==="
-    ${BACKTEST_BIN} \
-        --data-dir ${WORK}/events-all \
-        --output-dir ${WORK}/results/baseline-all \
-        2>&1
-fi
-
-# ── Validation summary ──
-if [[ "$FULL_EXPORT" != "true" ]]; then
-    echo ""
-    echo "=== VALIDATION SUMMARY ==="
-    echo ""
-
-    # Row counts per day
-    echo "Row counts per day:"
-    for f in ${WORK}/events-bbo/*.parquet; do
-        date_str=$(basename "$f" -events.parquet)
-        bbo_size=$(du -h "$f" | cut -f1)
-        all_file="${WORK}/events-all/${date_str}-events.parquet"
-        if [[ -f "$all_file" ]]; then
-            all_size=$(du -h "$all_file" | cut -f1)
-        else
-            all_size="N/A"
-        fi
-        echo "  ${date_str}: BBO=${bbo_size}, ALL=${all_size}"
-    done
-
-    echo ""
-    echo "See baseline analysis reports in results/baseline-bbo/ and results/baseline-all/"
-    echo "Check: per-geometry P(target) should be close to P_null = S/(T+S)"
-fi
-
-# ── Upload final results ──
-echo "=== Uploading final results ==="
+# ── Upload results ──
+echo "=== Uploading ==="
 cp /var/log/experiment.log ${WORK}/results/experiment.log
 aws s3 sync ${WORK}/results/ "s3://${S3_BUCKET}/${S3_PREFIX}/results/" --region "${AWS_REGION}"
 aws s3 sync ${WORK}/events-bbo/ "s3://${S3_BUCKET}/${S3_PREFIX}/events-bbo/" --region "${AWS_REGION}"
