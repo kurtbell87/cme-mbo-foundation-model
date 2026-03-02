@@ -146,7 +146,7 @@ pub fn simulate_barrier(
 
 /// Default geometries to generate labels for.
 /// Each pair is (target_ticks, stop_ticks).
-pub const DEFAULT_GEOMETRIES: [(i32, i32); 10] = [
+pub const DEFAULT_GEOMETRIES: [(i32, i32); 11] = [
     (5, 5),
     (10, 5),
     (10, 10),
@@ -157,6 +157,7 @@ pub const DEFAULT_GEOMETRIES: [(i32, i32); 10] = [
     (19, 19),
     (25, 10),
     (25, 25),
+    (40, 20), // 10pt target / 5pt stop (4 ticks/point on MES)
 ];
 
 /// Generate labels for a single evaluation point across multiple geometries.
