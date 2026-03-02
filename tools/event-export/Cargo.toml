@@ -1,0 +1,19 @@
+[package]
+name = "event-export"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "event-export"
+path = "src/main.rs"
+
+[dependencies]
+common = { workspace = true }
+book-builder = { workspace = true }
+databento-ingest = { workspace = true }
+event-features = { workspace = true }
+event-labels = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+arrow = { workspace = true }
+parquet = { workspace = true }
