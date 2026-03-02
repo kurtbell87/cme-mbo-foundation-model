@@ -742,6 +742,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "event-backtest"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "backtest",
+ "clap",
+ "common",
+ "event-features",
+ "event-labels",
+ "parquet",
+ "rayon",
+ "serde",
+ "serde_json",
+ "xgboost-ffi",
+]
+
+[[package]]
+name = "event-export"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "book-builder",
+ "clap",
+ "common",
+ "databento-ingest",
+ "event-features",
+ "event-labels",
+ "parquet",
+]
+
+[[package]]
+name = "event-features"
+version = "0.1.0"
+dependencies = [
+ "book-builder",
+ "common",
+]
+
+[[package]]
+name = "event-labels"
+version = "0.1.0"
+dependencies = [
+ "common",
+]
+
+[[package]]
 name = "fallible-streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

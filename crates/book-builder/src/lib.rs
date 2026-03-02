@@ -25,22 +25,24 @@ struct TradeRecord {
 /// instead of cloning full BTreeMaps. This reduces per-entry memory from ~5KB
 /// to ~180 bytes, critical for files with 500K+ F_LAST events.
 #[derive(Debug, Clone, Copy)]
-struct CommittedState {
-    ts: u64,
-    has_bid: bool,
-    has_ask: bool,
+pub struct CommittedState {
+    pub ts: u64,
+    pub has_bid: bool,
+    pub has_ask: bool,
     /// Top BOOK_DEPTH bid levels: [price, size], descending by price (best bid first).
-    bids: [[f32; 2]; BOOK_DEPTH],
+    pub bids: [[f32; 2]; BOOK_DEPTH],
     /// Top BOOK_DEPTH ask levels: [price, size], ascending by price (best ask first).
-    asks: [[f32; 2]; BOOK_DEPTH],
+    pub asks: [[f32; 2]; BOOK_DEPTH],
     /// Precomputed mid price (0.0 if one-sided).
-    mid: f32,
+    pub mid: f32,
     /// Precomputed spread (0.0 if one-sided).
-    spread: f32,
+    pub spread: f32,
     /// Number of valid bid levels stored (0..BOOK_DEPTH).
-    n_bids: u8,
+    pub n_bids: u8,
     /// Number of valid ask levels stored (0..BOOK_DEPTH).
-    n_asks: u8,
+    pub n_asks: u8,
+    /// True if the best bid or best ask price changed from the previous commit.
+    pub bbo_changed: bool,
 }
 
 /// Reconstructs an L2 order book from MBO events and emits 100ms snapshots.
@@ -72,6 +74,10 @@ pub struct BookBuilder {
 
     /// (timestamp_ns, mid_price) at every F_LAST with both sides quoted.
     tick_mid_prices: Vec<(u64, f32)>,
+
+    // Previous BBO prices for bbo_changed detection (raw i64 fixed-point)
+    prev_best_bid: Option<i64>,
+    prev_best_ask: Option<i64>,
 }
 
 const F_LAST: u8 = 0x80;
@@ -129,6 +135,8 @@ impl BookBuilder {
             last_spread: 0.0,
             ever_had_both_sides: false,
             tick_mid_prices: Vec::new(),
+            prev_best_bid: None,
+            prev_best_ask: None,
         }
     }
 
@@ -274,6 +282,11 @@ impl BookBuilder {
         std::mem::take(&mut self.tick_mid_prices)
     }
 
+    /// Take the full committed state series (moves data out, leaving Vec empty).
+    pub fn take_committed_states(&mut self) -> Vec<CommittedState> {
+        std::mem::take(&mut self.committed_states)
+    }
+
     // --- Private methods ---
 
     fn levels_for_mut(&mut self, side: char) -> &mut BTreeMap<i64, u32> {
@@ -374,6 +387,13 @@ impl BookBuilder {
             (0.0, 0.0)
         };
 
+        // Detect BBO change: compare current best bid/ask to previous
+        let cur_best_bid = self.bid_levels.keys().next_back().copied();
+        let cur_best_ask = self.ask_levels.keys().next().copied();
+        let bbo_changed = cur_best_bid != self.prev_best_bid || cur_best_ask != self.prev_best_ask;
+        self.prev_best_bid = cur_best_bid;
+        self.prev_best_ask = cur_best_ask;
+
         self.committed_states.push(CommittedState {
             ts,
             has_bid,
@@ -384,6 +404,7 @@ impl BookBuilder {
             spread,
             n_bids,
             n_asks,
+            bbo_changed,
         });
 
         // Record tick-level mid price when both sides are quoted
@@ -571,7 +592,39 @@ mod tests {
     fn test_compact_committed_state_size() {
         // Verify that CommittedState is now compact (no heap allocations)
         let size = std::mem::size_of::<CommittedState>();
-        // Should be ~188 bytes: 8 (ts) + 2 (bools) + 160 (bids+asks) + 8 (mid+spread) + 2 (counts) + padding
+        // Should be ~192 bytes: 8 (ts) + 3 (bools) + 160 (bids+asks) + 8 (mid+spread) + 2 (counts) + padding
         assert!(size < 256, "CommittedState should be compact, got {} bytes", size);
+    }
+
+    #[test]
+    fn test_bbo_changed_detection() {
+        let mut bb = make_builder();
+        // First commit: bid + ask → bbo_changed = true (from None)
+        bb.process_event(1000, 100, 1, 'A', 'B', 4500_000_000_000, 10, 0);
+        bb.process_event(1000, 101, 1, 'A', 'A', 4500_250_000_000, 5, F_LAST);
+        assert!(bb.committed_states[0].bbo_changed);
+
+        // Second commit: add depth behind BBO → bbo_changed = false
+        bb.process_event(2000, 102, 1, 'A', 'B', 4499_750_000_000, 8, F_LAST);
+        assert!(!bb.committed_states[1].bbo_changed);
+
+        // Third commit: move best bid up → bbo_changed = true
+        bb.process_event(3000, 103, 1, 'A', 'B', 4500_125_000_000, 15, F_LAST);
+        assert!(bb.committed_states[2].bbo_changed);
+    }
+
+    #[test]
+    fn test_take_committed_states() {
+        let mut bb = make_builder();
+        bb.process_event(1000, 100, 1, 'A', 'B', 4500_000_000_000, 10, 0);
+        bb.process_event(1000, 101, 1, 'A', 'A', 4500_250_000_000, 5, F_LAST);
+
+        let states = bb.take_committed_states();
+        assert_eq!(states.len(), 1);
+        assert!(states[0].has_bid);
+        assert!(states[0].has_ask);
+        assert!(states[0].bbo_changed);
+        // After take, internal vec should be empty
+        assert!(bb.committed_states.is_empty());
     }
 }

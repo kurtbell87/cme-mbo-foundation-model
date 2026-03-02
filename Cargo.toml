@@ -17,6 +17,8 @@ members = [
     "crates/databento-ingest",
     "crates/rithmic-client",
     "crates/xgboost-ffi",
+    "crates/event-features",
+    "crates/event-labels",
     "tools/bar-feature-export",
     "tools/oracle-expectancy",
     "tools/subordination-test",
@@ -24,6 +26,8 @@ members = [
     "tools/parity-test",
     "tools/cpcv-backtest",
     "tools/rithmic-live",
+    "tools/event-export",
+    "tools/event-backtest",
 ]
 
 [workspace.package]
@@ -45,6 +49,8 @@ models = { path = "crates/models" }
 databento-ingest = { path = "crates/databento-ingest" }
 rithmic-client = { path = "crates/rithmic-client" }
 xgboost-ffi = { path = "crates/xgboost-ffi" }
+event-features = { path = "crates/event-features" }
+event-labels = { path = "crates/event-labels" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
