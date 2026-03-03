@@ -1,0 +1,296 @@
+{
+  "config": {
+    "bar_type": "time",
+    "bar_interval_s": 5,
+    "target_ticks": 20,
+    "stop_ticks": 3,
+    "take_profit_ticks": 20,
+    "max_time_horizon_s": 3600,
+    "volume_horizon": 50000
+  },
+  "costs": {
+    "commission_per_side": 0.62,
+    "spread_ticks": 1,
+    "slippage_ticks": 0,
+    "contract_multiplier": 5.0,
+    "tick_size": 0.25
+  },
+  "days_processed": 244,
+  "days_skipped": 0,
+  "first_to_hit": {
+    "total_trades": 39805,
+    "winning_trades": 13244,
+    "losing_trades": 26561,
+    "win_rate": 0.332722,
+    "gross_pnl": 212120.0,
+    "net_pnl": 112976.12,
+    "profit_factor": 2.4354923,
+    "expectancy": 2.8382394,
+    "max_drawdown": 304.90234,
+    "sharpe": 0.18007202,
+    "annualized_sharpe": 14.183169,
+    "hold_fraction": 0.0,
+    "avg_bars_held": 0.0,
+    "avg_duration_s": 0.0,
+    "trades_per_day": 163.13524,
+    "exit_reasons": {
+      "target": 0,
+      "stop": 26501,
+      "take_profit": 13093,
+      "expiry": 0,
+      "session_end": 211,
+      "safety_cap": 0
+    }
+  },
+  "triple_barrier": {
+    "total_trades": 44352,
+    "winning_trades": 15231,
+    "losing_trades": 29121,
+    "win_rate": 0.3434118,
+    "gross_pnl": 252723.75,
+    "net_pnl": 142278.0,
+    "profit_factor": 2.575118,
+    "expectancy": 3.2079275,
+    "max_drawdown": 226.38281,
+    "sharpe": 0.20273331,
+    "annualized_sharpe": 15.51535,
+    "hold_fraction": 0.0,
+    "avg_bars_held": 0.0,
+    "avg_duration_s": 0.0,
+    "trades_per_day": 181.7705,
+    "exit_reasons": {
+      "target": 0,
+      "stop": 29098,
+      "take_profit": 15040,
+      "expiry": 0,
+      "session_end": 214,
+      "safety_cap": 0
+    }
+  },
+  "per_quarter": {
+    "Q1-2022": {
+      "first_to_hit": {
+        "total_trades": 11711,
+        "winning_trades": 4211,
+        "losing_trades": 7500,
+        "win_rate": 0.35957646,
+        "gross_pnl": 71166.875,
+        "net_pnl": 42010.055,
+        "profit_factor": 2.565139,
+        "expectancy": 3.5872304,
+        "max_drawdown": 274.79492,
+        "sharpe": 0.21681194,
+        "annualized_sharpe": 17.75956,
+        "hold_fraction": 0.0,
+        "avg_bars_held": 0.0,
+        "avg_duration_s": 0.0,
+        "trades_per_day": 229.62746,
+        "exit_reasons": {
+          "target": 0,
+          "stop": 7493,
+          "take_profit": 4186,
+          "expiry": 0,
+          "session_end": 32,
+          "safety_cap": 0
+        }
+      },
+      "triple_barrier": {
+        "total_trades": 13316,
+        "winning_trades": 4918,
+        "losing_trades": 8398,
+        "win_rate": 0.36933014,
+        "gross_pnl": 86171.25,
+        "net_pnl": 53021.38,
+        "profit_factor": 2.7198777,
+        "expectancy": 3.9817798,
+        "max_drawdown": 199.44336,
+        "sharpe": 0.2401008,
+        "annualized_sharpe": 19.25152,
+        "hold_fraction": 0.0,
+        "avg_bars_held": 0.0,
+        "avg_duration_s": 0.0,
+        "trades_per_day": 261.09805,
+        "exit_reasons": {
+          "target": 0,
+          "stop": 8397,
+          "take_profit": 4887,
+          "expiry": 0,
+          "session_end": 32,
+          "safety_cap": 0
+        }
+      }
+    },
+    "Q2-2022": {
+      "first_to_hit": {
+        "total_trades": 10978,
+        "winning_trades": 3706,
+        "losing_trades": 7272,
+        "win_rate": 0.33758426,
+        "gross_pnl": 59498.125,
+        "net_pnl": 32160.947,
+        "profit_factor": 2.442991,
+        "expectancy": 2.9295816,
+        "max_drawdown": 305.09888,
+        "sharpe": 0.184526,
+        "annualized_sharpe": 16.393883,
+        "hold_fraction": 0.0,
+        "avg_bars_held": 0.0,
+        "avg_duration_s": 0.0,
+        "trades_per_day": 179.96721,
+        "exit_reasons": {
+          "target": 0,
+          "stop": 7254,
+          "take_profit": 3664,
+          "expiry": 0,
+          "session_end": 60,
+          "safety_cap": 0
+        }
+      },
+      "triple_barrier": {
+        "total_trades": 12189,
+        "winning_trades": 4239,
+        "losing_trades": 7950,
+        "win_rate": 0.34777257,
+        "gross_pnl": 69986.25,
+        "net_pnl": 39639.2,
+        "profit_factor": 2.5586705,
+        "expectancy": 3.2520468,
+        "max_drawdown": 192.06055,
+        "sharpe": 0.20407984,
+        "annualized_sharpe": 18.945482,
+        "hold_fraction": 0.0,
+        "avg_bars_held": 0.0,
+        "avg_duration_s": 0.0,
+        "trades_per_day": 199.81967,
+        "exit_reasons": {
+          "target": 0,
+          "stop": 7944,
+          "take_profit": 4185,
+          "expiry": 0,
+          "session_end": 60,
+          "safety_cap": 0
+        }
+      }
+    },
+    "Q3-2022": {
+      "first_to_hit": {
+        "total_trades": 6944,
+        "winning_trades": 2073,
+        "losing_trades": 4871,
+        "win_rate": 0.29853112,
+        "gross_pnl": 30408.125,
+        "net_pnl": 13116.397,
+        "profit_factor": 2.2636814,
+        "expectancy": 1.8888822,
+        "max_drawdown": 268.11523,
+        "sharpe": 0.13008901,
+        "annualized_sharpe": 15.412344,
+        "hold_fraction": 0.0,
+        "avg_bars_held": 0.0,
+        "avg_duration_s": 0.0,
+        "trades_per_day": 113.83607,
+        "exit_reasons": {
+          "target": 0,
+          "stop": 4851,
+          "take_profit": 2033,
+          "expiry": 0,
+          "session_end": 60,
+          "safety_cap": 0
+        }
+      },
+      "triple_barrier": {
+        "total_trades": 7680,
+        "winning_trades": 2382,
+        "losing_trades": 5298,
+        "win_rate": 0.31015626,
+        "gross_pnl": 36301.875,
+        "net_pnl": 17177.285,
+        "profit_factor": 2.3936465,
+        "expectancy": 2.2366257,
+        "max_drawdown": 226.25977,
+        "sharpe": 0.15295318,
+        "annualized_sharpe": 17.017075,
+        "hold_fraction": 0.0,
+        "avg_bars_held": 0.0,
+        "avg_duration_s": 0.0,
+        "trades_per_day": 125.90164,
+        "exit_reasons": {
+          "target": 0,
+          "stop": 5291,
+          "take_profit": 2332,
+          "expiry": 0,
+          "session_end": 57,
+          "safety_cap": 0
+        }
+      }
+    },
+    "Q4-2022": {
+      "first_to_hit": {
+        "total_trades": 10172,
+        "winning_trades": 3254,
+        "losing_trades": 6918,
+        "win_rate": 0.31989777,
+        "gross_pnl": 51046.875,
+        "net_pnl": 25716.533,
+        "profit_factor": 2.3795521,
+        "expectancy": 2.528169,
+        "max_drawdown": 253.91602,
+        "sharpe": 0.16326185,
+        "annualized_sharpe": 16.74728,
+        "hold_fraction": 0.0,
+        "avg_bars_held": 0.0,
+        "avg_duration_s": 0.0,
+        "trades_per_day": 143.26761,
+        "exit_reasons": {
+          "target": 0,
+          "stop": 6903,
+          "take_profit": 3210,
+          "expiry": 0,
+          "session_end": 59,
+          "safety_cap": 0
+        }
+      },
+      "triple_barrier": {
+        "total_trades": 11167,
+        "winning_trades": 3692,
+        "losing_trades": 7475,
+        "win_rate": 0.330617,
+        "gross_pnl": 60264.375,
+        "net_pnl": 32456.225,
+        "profit_factor": 2.5297468,
+        "expectancy": 2.9064407,
+        "max_drawdown": 223.75977,
+        "sharpe": 0.1872703,
+        "annualized_sharpe": 18.939838,
+        "hold_fraction": 0.0,
+        "avg_bars_held": 0.0,
+        "avg_duration_s": 0.0,
+        "trades_per_day": 157.2817,
+        "exit_reasons": {
+          "target": 0,
+          "stop": 7466,
+          "take_profit": 3636,
+          "expiry": 0,
+          "session_end": 65,
+          "safety_cap": 0
+        }
+      }
+    }
+  },
+  "fth_assessment": {
+    "decision": "NO-GO",
+    "expectancy_passed": true,
+    "profit_factor_passed": true,
+    "win_rate_passed": false,
+    "drawdown_passed": false,
+    "trade_count_passed": true
+  },
+  "tb_assessment": {
+    "decision": "NO-GO",
+    "expectancy_passed": true,
+    "profit_factor_passed": true,
+    "win_rate_passed": false,
+    "drawdown_passed": false,
+    "trade_count_passed": true
+  }
+}

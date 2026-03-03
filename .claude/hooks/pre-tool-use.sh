@@ -1,0 +1,1 @@
+../../../orchestration-kit/.claude/hooks/pre-tool-use.sh

@@ -1,0 +1,191 @@
+{
+  "n_folds": 1,
+  "n_dev_days": 312,
+  "target_ticks": 19,
+  "stop_ticks": 7,
+  "base": {
+    "mean_expectancy": 3.171142260802197,
+    "std_expectancy": 0.0,
+    "ci_95": [
+      3.171142260802197,
+      3.171142260802197
+    ],
+    "negative_fold_fraction": 0.0,
+    "annualized_sharpe": 15.033698277189744,
+    "deflated_sharpe": 0.0,
+    "pooled_profit_factor": null,
+    "pooled_win_rate": 0.5121806345650172,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0
+        ],
+        "n_train_bars": 612240,
+        "n_test_bars": 267248,
+        "expectancy": 3.171142260802197,
+        "win_rate": 0.5121806345650172,
+        "profit_factor": 1.2672789722799385,
+        "annualized_sharpe": 15.033698277189744,
+        "total_trades": 250849,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 469
+      }
+    ]
+  },
+  "optimistic": {
+    "mean_expectancy": 4.421142260803448,
+    "std_expectancy": 0.0,
+    "ci_95": [
+      4.421142260803448,
+      4.421142260803448
+    ],
+    "negative_fold_fraction": 0.0,
+    "annualized_sharpe": 20.73440103974371,
+    "deflated_sharpe": 0.0,
+    "pooled_profit_factor": null,
+    "pooled_win_rate": 0.5155332490861035,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0
+        ],
+        "n_train_bars": 612240,
+        "n_test_bars": 267248,
+        "expectancy": 4.421142260803448,
+        "win_rate": 0.5155332490861035,
+        "profit_factor": 1.3928182071234636,
+        "annualized_sharpe": 20.73440103974371,
+        "total_trades": 250849,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 469
+      }
+    ]
+  },
+  "pessimistic": {
+    "mean_expectancy": 0.6711422608026795,
+    "std_expectancy": 0.0,
+    "ci_95": [
+      0.6711422608026795,
+      0.6711422608026795
+    ],
+    "negative_fold_fraction": 0.0,
+    "annualized_sharpe": 3.220564272046631,
+    "deflated_sharpe": 0.0,
+    "pooled_profit_factor": null,
+    "pooled_win_rate": 0.5066793170393344,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0
+        ],
+        "n_train_bars": 612240,
+        "n_test_bars": 267248,
+        "expectancy": 0.6711422608026795,
+        "win_rate": 0.5066793170393344,
+        "profit_factor": 1.0512556302898821,
+        "annualized_sharpe": 3.220564272046631,
+        "total_trades": 250849,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 469
+      }
+    ]
+  },
+  "serial_base": {
+    "mean_expectancy": -3.601296791443676,
+    "std_expectancy": 0.0,
+    "ci_95": [
+      -3.601296791443676,
+      -3.601296791443676
+    ],
+    "negative_fold_fraction": 1.0,
+    "annualized_sharpe": -1.48662365938904,
+    "deflated_sharpe": 0.0,
+    "pooled_profit_factor": 0.0,
+    "pooled_win_rate": 0.4411764705882353,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0
+        ],
+        "n_train_bars": 612240,
+        "n_test_bars": 267248,
+        "expectancy": -3.601296791443676,
+        "win_rate": 0.4411764705882353,
+        "profit_factor": 0.882211602579328,
+        "annualized_sharpe": -1.48662365938904,
+        "total_trades": 374,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 469
+      }
+    ]
+  },
+  "serial_optimistic": {
+    "mean_expectancy": -2.351296791443676,
+    "std_expectancy": 0.0,
+    "ci_95": [
+      -2.351296791443676,
+      -2.351296791443676
+    ],
+    "negative_fold_fraction": 1.0,
+    "annualized_sharpe": -0.9713036153231296,
+    "deflated_sharpe": 0.0,
+    "pooled_profit_factor": 0.0,
+    "pooled_win_rate": 0.4572192513368984,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0
+        ],
+        "n_train_bars": 612240,
+        "n_test_bars": 267248,
+        "expectancy": -2.351296791443676,
+        "win_rate": 0.4572192513368984,
+        "profit_factor": 0.9213023369863903,
+        "annualized_sharpe": -0.9713036153231296,
+        "total_trades": 374,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 469
+      }
+    ]
+  },
+  "serial_pessimistic": {
+    "mean_expectancy": -6.1012967914436755,
+    "std_expectancy": 0.0,
+    "ci_95": [
+      -6.1012967914436755,
+      -6.1012967914436755
+    ],
+    "negative_fold_fraction": 1.0,
+    "annualized_sharpe": -2.512754877112242,
+    "deflated_sharpe": 0.0,
+    "pooled_profit_factor": 0.0,
+    "pooled_win_rate": 0.4358288770053476,
+    "fold_summaries": [
+      {
+        "split_idx": 0,
+        "test_groups": [
+          0
+        ],
+        "n_train_bars": 612240,
+        "n_test_bars": 267248,
+        "expectancy": -6.1012967914436755,
+        "win_rate": 0.4358288770053476,
+        "profit_factor": 0.809243065590008,
+        "annualized_sharpe": -2.512754877112242,
+        "total_trades": 374,
+        "stage1_best_iter": 429,
+        "stage2_best_iter": 469
+      }
+    ]
+  },
+  "serial_ljung_box": {
+    "q_statistic": 14.312924133702968,
+    "p_value": 0.15847109570113904,
+    "max_lag": 10
+  }
+}

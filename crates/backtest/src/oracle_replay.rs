@@ -50,6 +50,7 @@ pub struct BacktestResult {
     pub expectancy: f32,
     pub max_drawdown: f32,
     pub sharpe: f32,
+    pub annualized_sharpe: f32,
     pub hold_fraction: f32,
     pub avg_bars_held: f32,
     pub avg_duration_s: f32,
@@ -105,6 +106,22 @@ pub fn compute_sharpe(result: &mut BacktestResult) {
     }
 }
 
+/// Compute annualized Sharpe ratio from daily PnL.
+/// Formula: (mean_daily / std_daily) * sqrt(252)
+pub fn compute_annualized_sharpe(result: &mut BacktestResult) {
+    if result.daily_pnl.len() < 2 {
+        return;
+    }
+    let n = result.daily_pnl.len() as f32;
+    let mean = result.daily_pnl.iter().sum::<f32>() / n;
+    let sum_sq: f32 = result.daily_pnl.iter().map(|&d| (d - mean).powi(2)).sum();
+    let variance = sum_sq / (n - 1.0);
+    let stddev = variance.sqrt();
+    if stddev > 0.0 {
+        result.annualized_sharpe = (mean / stddev) * (252.0f32).sqrt();
+    }
+}
+
 /// Recompute derived metrics on an aggregated BacktestResult.
 pub fn recompute_derived(agg: &mut BacktestResult, active_days: i32) {
     if agg.total_trades > 0 {
@@ -131,6 +148,7 @@ pub fn recompute_derived(agg: &mut BacktestResult, active_days: i32) {
 
     compute_max_drawdown(agg);
     compute_sharpe(agg);
+    compute_annualized_sharpe(agg);
 }
 
 /// Oracle replay engine.

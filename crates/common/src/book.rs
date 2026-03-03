@@ -34,6 +34,12 @@ pub struct BookSnapshot {
     pub time_of_day: f32,
     /// Number of action='T' events since previous snapshot.
     pub trade_count: u32,
+    /// Number of action='A' events since previous snapshot.
+    pub add_count: u32,
+    /// Number of action='C' events since previous snapshot.
+    pub cancel_count: u32,
+    /// Number of action='M' events since previous snapshot.
+    pub modify_count: u32,
 }
 
 impl Default for BookSnapshot {
@@ -47,6 +53,9 @@ impl Default for BookSnapshot {
             spread: 0.0,
             time_of_day: 0.0,
             trade_count: 0,
+            add_count: 0,
+            cancel_count: 0,
+            modify_count: 0,
         }
     }
 }

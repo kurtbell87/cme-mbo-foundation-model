@@ -1,0 +1,1 @@
+../../../orchestration-kit/mathematics-kit/.claude/prompts/math-prove.md

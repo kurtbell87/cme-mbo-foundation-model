@@ -1,0 +1,1 @@
+../../../orchestration-kit/tdd-kit/.claude/prompts/tdd-red.md
