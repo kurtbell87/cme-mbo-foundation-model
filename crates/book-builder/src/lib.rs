@@ -331,16 +331,16 @@ impl BookBuilder {
     }
 
     fn apply_modify(&mut self, order_id: u64, side: char, new_price: i64, new_size: u32) {
+        // Only apply if the order is already tracked.  Applying a CHANGE for an
+        // unknown order_id would add a phantom entry to the level (wrong size),
+        // which diverges from the exchange.  Unknown-order CHANGEs can arrive
+        // during the brief window between DBO subscription and snapshot completion;
+        // after a valid snapshot, every active order should be in our map.
         if let Some(info) = self.orders.remove(&order_id) {
             self.remove_from_level(&info);
+            self.orders.insert(order_id, OrderInfo { side, price: new_price, size: new_size });
+            self.add_to_level(side, new_price, new_size);
         }
-        let info = OrderInfo {
-            side,
-            price: new_price,
-            size: new_size,
-        };
-        self.orders.insert(order_id, info);
-        self.add_to_level(side, new_price, new_size);
     }
 
     fn apply_trade(&mut self, side: char, price: i64, size: u32) {
@@ -483,6 +483,16 @@ mod tests {
         // After modify: bid moved to 4501.0 with size 15
         assert!((cs.bids[0][0] - 4501.0).abs() < 0.01);
         assert!((cs.bids[0][1] - 15.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_modify_unknown_order_is_noop() {
+        // A CHANGE for an order we never saw ADD must not create a phantom level.
+        let mut bb = make_builder();
+        bb.process_event(1000, 999, 1, 'M', 'B', 4500_000_000_000, 10, F_LAST);
+
+        let cs = bb.committed_states.last().unwrap();
+        assert!(!cs.has_bid, "unknown CHANGE must not create a phantom bid level");
     }
 
     #[test]

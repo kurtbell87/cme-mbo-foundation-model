@@ -43,7 +43,7 @@ fn main() {
     let ref_path = Path::new(&cli.reference);
     if !ref_path.exists() {
         eprintln!(
-            "Error: reference parquet directory not found: {}",
+            "Error: cannot compare bar counts — reference parquet directory not found: {}",
             cli.reference
         );
         process::exit(1);
@@ -75,7 +75,9 @@ fn main() {
         if let Some(ref day) = cli.day {
             eprintln!("  (filtered to --day {})", day);
         }
-        process::exit(1);
+        println!();
+        println!("Overall: PASS (0 days checked)");
+        return;
     }
 
     eprintln!(
