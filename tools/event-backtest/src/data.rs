@@ -254,17 +254,20 @@ fn hash_subsample(timestamp_ns: u64, seed: u64) -> u32 {
     (hasher.finish() % 1000) as u32
 }
 
-/// Parse "YYYY-MM-DD-events" or "YYYY-MM-DD" into YYYYMMDD integer.
+/// Parse event Parquet filename stems into YYYYMMDD integer.
+///
+/// Handles: "YYYYMMDD-events", "YYYY-MM-DD-events", "YYYYMMDD", "YYYY-MM-DD".
 fn parse_event_date_stem(s: &str) -> Option<i32> {
     let date_part = if s.ends_with("-events") {
         &s[..s.len() - 7]
     } else {
         s
     };
-    if date_part.len() != 10 {
-        return None;
+    match date_part.len() {
+        8 => date_part.parse::<i32>().ok().filter(|&d| d >= 19000101 && d <= 20991231),
+        10 => date_part.replace('-', "").parse::<i32>().ok(),
+        _ => None,
     }
-    date_part.replace('-', "").parse::<i32>().ok()
 }
 
 /// Assemble a flat f32 feature buffer and label buffer from multiple day chunks.
@@ -321,9 +324,16 @@ mod tests {
 
     #[test]
     fn test_parse_event_date_stem() {
+        // YYYY-MM-DD-events (dashed)
         assert_eq!(parse_event_date_stem("2024-01-15-events"), Some(20240115));
         assert_eq!(parse_event_date_stem("2024-12-31-events"), Some(20241231));
+        // YYYYMMDD-events (no dashes — actual EC2 export format)
+        assert_eq!(parse_event_date_stem("20220102-events"), Some(20220102));
+        assert_eq!(parse_event_date_stem("20221230-events"), Some(20221230));
+        // Bare date
         assert_eq!(parse_event_date_stem("2024-01-15"), Some(20240115));
+        assert_eq!(parse_event_date_stem("20220102"), Some(20220102));
+        // Invalid
         assert_eq!(parse_event_date_stem("bad"), None);
         assert_eq!(parse_event_date_stem(""), None);
     }
