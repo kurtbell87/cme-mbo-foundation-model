@@ -86,6 +86,8 @@ pub async fn authenticate(
         ));
     }
 
+    eprintln!("[auth] available systems: {:?}", system_names);
+
     // Pick system name: use preferred if available, otherwise first
     let system_name = if let Some(pref) = preferred_system {
         if system_names.iter().any(|s| s == pref) {
@@ -143,7 +145,7 @@ pub async fn authenticate(
                         )));
                     }
 
-                    let heartbeat_interval = resp.heartbeat_interval.unwrap_or(60) as u64;
+                    let heartbeat_interval = resp.heartbeat_interval.unwrap_or(60.0) as u64;
 
                     return Ok(AuthResult {
                         ws_stream: ws,

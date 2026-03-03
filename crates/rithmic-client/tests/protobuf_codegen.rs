@@ -251,7 +251,7 @@ fn roundtrip_response_login() {
         template_id: Some(11),
         user_msg: Some(vec!["correlation-1".to_string()]),
         rp_code: Some(vec!["0".to_string()]),
-        heartbeat_interval: Some(30),
+        heartbeat_interval: Some(30.0),
         unique_user_id: Some("user-12345".to_string()),
     };
     let buf = original.encode_to_vec();
@@ -262,7 +262,7 @@ fn roundtrip_response_login() {
         decoded.user_msg.as_ref().and_then(|v| v.first()),
         Some(&"correlation-1".to_string())
     );
-    assert_eq!(decoded.heartbeat_interval, Some(30));
+    assert_eq!(decoded.heartbeat_interval, Some(30.0));
     assert_eq!(decoded.unique_user_id.as_deref(), Some("user-12345"));
 }
 
