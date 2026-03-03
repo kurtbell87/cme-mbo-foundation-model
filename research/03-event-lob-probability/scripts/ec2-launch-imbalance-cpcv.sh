@@ -19,7 +19,7 @@ set -euo pipefail
 # ── Parse args ────────────────────────────────────────────────
 OFI_THRESHOLD=2.0
 GEOMETRY="10:5"
-PARALLEL_FOLDS=4
+PARALLEL_FOLDS=15
 MARGIN=0.02
 DATA_PREFIX=""
 DRY_RUN=false
@@ -42,7 +42,7 @@ AWS_REGION="us-east-1"
 SSH_KEY="kenoma-research"
 AMI_ID="ami-0f3caa1cf4417e51b"          # Amazon Linux 2023 x86_64
 IAM_PROFILE="cloud-run-ec2"
-INSTANCE_TYPE="c7a.xlarge"              # 4 vCPU, 8 GB — dataset is tiny
+INSTANCE_TYPE="c7a.32xlarge"            # 128 vCPU, 256 GB — max parallelism
 
 # Default data prefix: most recent bilateral export (update after export completes)
 if [[ -z "${DATA_PREFIX}" ]]; then
@@ -257,9 +257,8 @@ BDM='[
   {"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":100,"VolumeType":"gp3","Iops":6000,"Throughput":400,"DeleteOnTermination":true}}
 ]'
 
-# Try spot first, fall back to on-demand
+# Spot only (no on-demand fallback for 32xlarge)
 LAUNCH_MODE="spot"
-SPOT_ERR=$(mktemp)
 INSTANCE_ID=$(aws ec2 run-instances \
     --image-id "${AMI_ID}" \
     --instance-type "${INSTANCE_TYPE}" \
@@ -273,27 +272,13 @@ INSTANCE_ID=$(aws ec2 run-instances \
     --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=imbalance-cpcv-${RUN_ID}},{Key=ManagedBy,Value=cloud-run},{Key=RunId,Value=${RUN_ID}}]" \
     --client-token "cloud-run-spot-${RUN_ID:0:59}" \
     --region "${AWS_REGION}" \
-    --query "Instances[0].InstanceId" --output text 2>"${SPOT_ERR}") || true
+    --query "Instances[0].InstanceId" --output text)
 
 if [[ -z "${INSTANCE_ID}" ]] || [[ "${INSTANCE_ID}" == "None" ]]; then
-    echo "  Spot failed: $(cat ${SPOT_ERR})"
-    echo "  Launching on-demand..."
-    LAUNCH_MODE="on-demand"
-    INSTANCE_ID=$(aws ec2 run-instances \
-        --image-id "${AMI_ID}" \
-        --instance-type "${INSTANCE_TYPE}" \
-        --key-name "${SSH_KEY}" \
-        --security-group-ids "${SG_ID}" \
-        --iam-instance-profile Name="${IAM_PROFILE}" \
-        --user-data "${USER_DATA}" \
-        --instance-initiated-shutdown-behavior terminate \
-        --block-device-mappings "${BDM}" \
-        --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=imbalance-cpcv-${RUN_ID}},{Key=ManagedBy,Value=cloud-run},{Key=RunId,Value=${RUN_ID}}]" \
-        --client-token "cloud-run-od-${RUN_ID:0:61}" \
-        --region "${AWS_REGION}" \
-        --query "Instances[0].InstanceId" --output text)
+    echo "  ERROR: Spot request failed. Retry later or check spot capacity."
+    aws ec2 delete-security-group --group-id "${SG_ID}" --region "${AWS_REGION}" 2>/dev/null || true
+    exit 1
 fi
-rm -f "${SPOT_ERR}"
 
 echo "  Instance: ${INSTANCE_ID} (${LAUNCH_MODE})"
 
