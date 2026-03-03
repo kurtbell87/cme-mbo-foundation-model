@@ -15,7 +15,11 @@ use anyhow::{Context, Result};
 use arrow::array::{Float32Array, Int8Array, Int32Array, UInt64Array};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
-use event_features::{LOB_FEATURE_NAMES, NUM_LOB_FEATURES, NUM_MODEL_INPUTS};
+use event_features::{LOB_FEATURE_NAMES, NUM_LOB_FEATURES};
+use flow_features::{FLOW_FEATURE_NAMES, NUM_FLOW_FEATURES};
+
+/// Total model inputs: 42 LOB + 46 flow + target_ticks + stop_ticks = 90.
+pub const NUM_FEATURES: usize = NUM_LOB_FEATURES + NUM_FLOW_FEATURES + 2;
 
 /// Number of geometry rows per eval point (11 T/S combinations).
 pub const ROWS_PER_EVAL_POINT: usize = 11;
@@ -36,7 +40,7 @@ pub struct DayMeta {
 pub struct DayChunk {
     pub date: i32,
     pub n_rows: usize,
-    /// 44 model inputs per row: 42 LOB features + target_ticks + stop_ticks (as f32).
+    /// 90 model inputs per row: 42 LOB + 46 flow + target_ticks + stop_ticks (as f32).
     pub features: Vec<f32>,
     /// Binary label: 1.0 = target hit, 0.0 = stop hit.
     pub labels: Vec<f32>,
@@ -53,6 +57,10 @@ pub struct EventData {
     pub outcome: i8,
     pub exit_ts: u64,
     pub pnl_ticks: f32,
+    /// Trade direction: +1 = long, -1 = short. Defaults to +1 for old Parquets.
+    pub direction: i8,
+    /// OFI fast signal value. Defaults to 0.0 for old Parquets.
+    pub ofi_fast: f32,
 }
 
 /// Scan a directory for event Parquet files and return sorted metadata.
@@ -130,6 +138,54 @@ pub fn load_day_full(path: &Path) -> Result<DayChunk> {
     load_day_impl(path, None)
 }
 
+/// Load one day's Parquet filtered to imbalance bar events.
+///
+/// Keeps only rows where |ofi_fast| > `ofi_threshold`. If `target_geometry`
+/// is Some((T, S)), further filters to that single geometry.
+/// No subsampling needed — the filtered dataset is small.
+pub fn load_day_imbalance(
+    path: &Path,
+    ofi_threshold: f32,
+    target_geometry: Option<(i32, i32)>,
+) -> Result<DayChunk> {
+    let mut chunk = load_day_impl(path, None)?;
+
+    // Filter in-place: keep only rows matching imbalance + geometry criteria
+    let mut keep = Vec::with_capacity(chunk.n_rows);
+    for event in &chunk.events {
+        let pass_ofi = event.ofi_fast.abs() > ofi_threshold;
+        let pass_geom = target_geometry
+            .map_or(true, |(t, s)| event.target_ticks == t && event.stop_ticks == s);
+        keep.push(pass_ofi && pass_geom);
+    }
+
+    let new_n = keep.iter().filter(|&&k| k).count();
+    if new_n == chunk.n_rows {
+        return Ok(chunk);
+    }
+
+    // Rebuild filtered vectors
+    let mut new_features = Vec::with_capacity(new_n * NUM_FEATURES);
+    let mut new_labels = Vec::with_capacity(new_n);
+    let mut new_events = Vec::with_capacity(new_n);
+
+    for (i, &kept) in keep.iter().enumerate() {
+        if kept {
+            let feat_start = i * NUM_FEATURES;
+            new_features.extend_from_slice(&chunk.features[feat_start..feat_start + NUM_FEATURES]);
+            new_labels.push(chunk.labels[i]);
+            new_events.push(chunk.events[i]);
+        }
+    }
+
+    chunk.features = new_features;
+    chunk.labels = new_labels;
+    chunk.events = new_events;
+    chunk.n_rows = new_n;
+
+    Ok(chunk)
+}
+
 /// Internal loader. If `subsample` is Some((threshold, seed)), only include
 /// eval points whose hash falls below threshold.
 fn load_day_impl(
@@ -182,13 +238,30 @@ fn load_day_impl(
             .as_any().downcast_ref::<Float32Array>()
             .context("pnl_ticks not Float32")?;
 
-        // Read feature columns
-        let mut feature_arrays: Vec<&Float32Array> = Vec::with_capacity(NUM_LOB_FEATURES);
+        // Optional direction column (absent in pre-bilateral Parquets)
+        let direction_col_opt = batch.column_by_name("direction")
+            .and_then(|c| c.as_any().downcast_ref::<Int8Array>());
+
+        // Optional ofi_fast column (read from flow features)
+        let ofi_fast_col_opt = batch.column_by_name("ofi_fast")
+            .and_then(|c| c.as_any().downcast_ref::<Float32Array>());
+
+        // Read LOB feature columns
+        let mut feature_arrays: Vec<&Float32Array> = Vec::with_capacity(NUM_LOB_FEATURES + NUM_FLOW_FEATURES);
         for name in &LOB_FEATURE_NAMES {
             let arr = batch.column_by_name(name)
                 .with_context(|| format!("Missing feature column: {}", name))?
                 .as_any().downcast_ref::<Float32Array>()
                 .with_context(|| format!("Feature {} not Float32", name))?;
+            feature_arrays.push(arr);
+        }
+
+        // Read flow feature columns
+        for name in &FLOW_FEATURE_NAMES {
+            let arr = batch.column_by_name(name)
+                .with_context(|| format!("Missing flow feature column: {}", name))?
+                .as_any().downcast_ref::<Float32Array>()
+                .with_context(|| format!("Flow feature {} not Float32", name))?;
             feature_arrays.push(arr);
         }
 
@@ -215,7 +288,7 @@ fn load_day_impl(
             let target_ticks = target_col.value(row_idx);
             let stop_ticks = stop_col.value(row_idx);
 
-            // Append 44 features: 42 LOB + target_ticks + stop_ticks
+            // Append 90 features: 42 LOB + 46 flow + target_ticks + stop_ticks
             for arr in &feature_arrays {
                 features.push(arr.value(row_idx));
             }
@@ -232,6 +305,8 @@ fn load_day_impl(
                 outcome,
                 exit_ts: exit_col.value(row_idx),
                 pnl_ticks: pnl_col.value(row_idx),
+                direction: direction_col_opt.map_or(1, |c| c.value(row_idx)),
+                ofi_fast: ofi_fast_col_opt.map_or(0.0, |c| c.value(row_idx)),
             });
         }
     }
@@ -272,27 +347,29 @@ fn parse_event_date_stem(s: &str) -> Option<i32> {
 
 /// Assemble a flat f32 feature buffer and label buffer from multiple day chunks.
 ///
-/// Returns (flat_features, labels, total_rows). flat_features is row-major
-/// with NUM_MODEL_INPUTS columns.
-pub fn assemble_buffers(chunks: &[DayChunk]) -> (Vec<f32>, Vec<f32>) {
+/// Drains features/labels from chunks to avoid doubling memory.
+/// After this call, chunks' feature/label vecs are empty.
+/// Returns (flat_features, labels). flat_features is row-major with NUM_FEATURES columns.
+pub fn assemble_buffers(chunks: &mut [DayChunk]) -> (Vec<f32>, Vec<f32>) {
     let total_rows: usize = chunks.iter().map(|c| c.n_rows).sum();
-    let mut features = Vec::with_capacity(total_rows * NUM_MODEL_INPUTS);
+    let mut features = Vec::with_capacity(total_rows * NUM_FEATURES);
     let mut labels = Vec::with_capacity(total_rows);
 
-    for chunk in chunks {
-        features.extend_from_slice(&chunk.features);
-        labels.extend_from_slice(&chunk.labels);
+    for chunk in chunks.iter_mut() {
+        features.append(&mut chunk.features);
+        labels.append(&mut chunk.labels);
     }
 
     (features, labels)
 }
 
 /// Collect all EventData from multiple day chunks (for serial PnL).
-pub fn collect_events(chunks: &[DayChunk]) -> Vec<EventData> {
+/// Drains events from chunks to avoid doubling memory.
+pub fn collect_events(chunks: &mut [DayChunk]) -> Vec<EventData> {
     let total: usize = chunks.iter().map(|c| c.events.len()).sum();
     let mut events = Vec::with_capacity(total);
-    for chunk in chunks {
-        events.extend_from_slice(&chunk.events);
+    for chunk in chunks.iter_mut() {
+        events.append(&mut chunk.events);
     }
     events
 }
@@ -376,7 +453,7 @@ mod tests {
 
     #[test]
     fn test_assemble_buffers_empty() {
-        let (features, labels) = assemble_buffers(&[]);
+        let (features, labels) = assemble_buffers(&mut []);
         assert!(features.is_empty());
         assert!(labels.is_empty());
     }
