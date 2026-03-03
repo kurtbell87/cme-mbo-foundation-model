@@ -1,5 +1,7 @@
 # Feature Parity Specification
 
+> **DEPRECATED (2026-03-03):** The C++ MBO-DL pipeline is retired. This spec described feature equivalence between the C++ reference and Rust pipeline. That requirement no longer exists — the Rust pipeline is the sole ground truth. Mid-price features documented here (HLR50, close_position, mid-based returns/volatility) are being replaced with tradeable-price equivalents. Do not use this document to guide new feature development.
+
 **Audit Date:** 2026-02-27
 **Auditor:** External (Claude Opus 4.6)
 **Scope:** Complete feature parity spec for replicating the MBO-DL research pipeline in a live Rithmic-based execution system.

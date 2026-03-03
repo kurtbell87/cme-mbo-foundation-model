@@ -199,6 +199,105 @@ impl prost::Message for ResponseRithmicSystemInfo {
     }
 }
 
+// ---- RequestRithmicSystemGatewayInfo (14) ----
+
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct RequestRithmicSystemGatewayInfo {
+    #[prost(int32, optional, tag = "154467")]
+    pub template_id: Option<i32>,
+    #[prost(string, optional, tag = "153628")]
+    pub system_name: Option<String>,
+}
+
+impl RequestRithmicSystemGatewayInfo {
+    pub fn new(system_name: &str) -> Self {
+        Self {
+            template_id: Some(14),
+            system_name: Some(system_name.to_string()),
+        }
+    }
+}
+
+// ---- ResponseRithmicSystemGatewayInfo (15) ----
+// Has repeated string fields: gateway_name, gateway_uri
+
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct ResponseRithmicSystemGatewayInfo {
+    pub template_id: Option<i32>,
+    pub system_name: Option<String>,
+    pub gateway_name: Option<Vec<String>>,
+    pub gateway_uri: Option<Vec<String>>,
+    pub user_msg: Option<Vec<String>>,
+    pub rp_code: Option<Vec<String>>,
+}
+
+impl prost::Message for ResponseRithmicSystemGatewayInfo {
+    fn encode_raw(&self, buf: &mut impl BufMut) {
+        if let Some(v) = self.template_id {
+            encoding::int32::encode(TEMPLATE_ID_TAG, &v, buf);
+        }
+        if let Some(ref s) = self.system_name {
+            encoding::string::encode(153628, s, buf);
+        }
+        encode_optional_repeated_string(153640, &self.gateway_name, buf);
+        encode_optional_repeated_string(153641, &self.gateway_uri, buf);
+        encode_optional_repeated_string(132760, &self.user_msg, buf);
+        encode_optional_repeated_string(132766, &self.rp_code, buf);
+    }
+
+    fn merge_field(
+        &mut self,
+        tag: u32,
+        wire_type: WireType,
+        buf: &mut impl Buf,
+        ctx: DecodeContext,
+    ) -> Result<(), DecodeError> {
+        match tag {
+            TEMPLATE_ID_TAG => {
+                let mut v = self.template_id.unwrap_or_default();
+                encoding::int32::merge(wire_type, &mut v, buf, ctx)?;
+                self.template_id = Some(v);
+                Ok(())
+            }
+            153628 => {
+                let mut s = self.system_name.take().unwrap_or_default();
+                encoding::string::merge(wire_type, &mut s, buf, ctx)?;
+                self.system_name = Some(s);
+                Ok(())
+            }
+            153640 => merge_optional_repeated_string(&mut self.gateway_name, wire_type, buf, ctx),
+            153641 => merge_optional_repeated_string(&mut self.gateway_uri, wire_type, buf, ctx),
+            132760 => merge_optional_repeated_string(&mut self.user_msg, wire_type, buf, ctx),
+            132766 => merge_optional_repeated_string(&mut self.rp_code, wire_type, buf, ctx),
+            _ => encoding::skip_field(wire_type, tag, buf, ctx),
+        }
+    }
+
+    fn encoded_len(&self) -> usize {
+        let mut len = 0;
+        if let Some(v) = self.template_id {
+            len += encoding::int32::encoded_len(TEMPLATE_ID_TAG, &v);
+        }
+        if let Some(ref s) = self.system_name {
+            len += encoding::string::encoded_len(153628, s);
+        }
+        len += encoded_len_optional_repeated_string(153640, &self.gateway_name);
+        len += encoded_len_optional_repeated_string(153641, &self.gateway_uri);
+        len += encoded_len_optional_repeated_string(132760, &self.user_msg);
+        len += encoded_len_optional_repeated_string(132766, &self.rp_code);
+        len
+    }
+
+    fn clear(&mut self) {
+        self.template_id = None;
+        self.system_name = None;
+        self.gateway_name = None;
+        self.gateway_uri = None;
+        self.user_msg = None;
+        self.rp_code = None;
+    }
+}
+
 // ---- RequestLogin (10) — CORRECTED FIELD TAGS ----
 
 #[derive(Clone, PartialEq, prost::Message)]
@@ -690,10 +789,18 @@ pub struct BestBidOffer {
     pub bid_price: Option<f64>,
     #[prost(int32, optional, tag = "100030")]
     pub bid_size: Option<i32>,
+    #[prost(int32, optional, tag = "154403")]
+    pub bid_orders: Option<i32>,
+    #[prost(int32, optional, tag = "154867")]
+    pub bid_implicit_size: Option<i32>,
     #[prost(double, optional, tag = "100025")]
     pub ask_price: Option<f64>,
     #[prost(int32, optional, tag = "100031")]
     pub ask_size: Option<i32>,
+    #[prost(int32, optional, tag = "154404")]
+    pub ask_orders: Option<i32>,
+    #[prost(int32, optional, tag = "154868")]
+    pub ask_implicit_size: Option<i32>,
     #[prost(int32, optional, tag = "150100")]
     pub ssboe: Option<i32>,
     #[prost(int32, optional, tag = "150101")]

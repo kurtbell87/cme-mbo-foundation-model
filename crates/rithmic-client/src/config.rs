@@ -30,6 +30,8 @@ pub struct RithmicConfig {
     pub system_name: Option<String>,
     /// Dev mode: panic on BBO divergence instead of logging.
     pub dev_mode: bool,
+    /// Path for the structured JSON Lines health log.
+    pub log_file: String,
 }
 
 impl RithmicConfig {
@@ -82,6 +84,7 @@ impl RithmicConfig {
             s3_bucket,
             system_name,
             dev_mode,
+            log_file: String::new(), // set by caller (main.rs auto-generates)
         })
     }
 }

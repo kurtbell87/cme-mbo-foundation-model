@@ -3,14 +3,30 @@
 //! The dispatcher extracts metadata once per message (no double-parsing)
 //! and sends typed events to the appropriate downstream channels.
 //!
-//! Implements sequence gap recovery:
-//! 1. On gap detection → transition to Recovering state
-//! 2. Buffer incoming DBO (160) messages (bounded ~10k)
-//! 3. Send RequestDepthByOrderSnapshot (115) via ws_cmd_tx
-//! 4. Process ResponseDepthByOrderSnapshot (116) → OrderEvents for book rebuild
-//! 5. On DepthByOrderEndEvent (161) → record snapshot_end_sequence
-//! 6. Discard buffered events where seq <= snapshot_end_sequence
-//! 7. Forward remaining buffered events → resume Streaming
+//! ## Snapshot state machine
+//!
+//! Both initial cold-start and gap recovery use a unified `LoadingSnapshot`
+//! state. In both cases:
+//!   1. ClearBook sent to pipeline (book wiped)
+//!   2. 116 (ResponseDepthByOrderSnapshot) entries applied as Add events
+//!   3. Incoming 160 (DepthByOrder) messages buffered (not applied yet)
+//!   4. 161 (DepthByOrderEndEvent) fires:
+//!      - Records `snapshot_end_sequence`
+//!      - Discards buffered 160s with seq <= snapshot_end_sequence
+//!      - Replays buffered 160s with seq > snapshot_end_sequence
+//!      - Sends SnapshotComplete to pipeline
+//!      - Transitions to Streaming
+//!
+//! This guarantees the book is fully loaded before any incremental update
+//! is applied, and no incremental is applied twice (snapshot + incremental).
+//!
+//! ## Gap recovery
+//!
+//! On sequence gap detection:
+//!   1. Buffer the gap-triggering 160 message
+//!   2. Send ClearBook
+//!   3. Request new snapshot (115)
+//!   4. Enter LoadingSnapshot — same flow as cold start
 
 use std::collections::VecDeque;
 use std::time::Instant;
@@ -29,9 +45,11 @@ use crate::rti;
 use crate::subscription;
 use crate::extract_template_id;
 
-/// Maximum number of DBO messages to buffer during recovery.
-/// If exceeded, discard buffer and rely entirely on snapshot + post-snapshot stream.
-const RECOVERY_BUFFER_LIMIT: usize = 10_000;
+/// Maximum number of DBO messages to buffer during snapshot loading.
+/// The Rithmic MES snapshot sends one 116 message per price level and can take
+/// 30–60 s while DBO incrementals arrive at ~400–500 msgs/sec.  100k gives
+/// ~3–4 min of headroom before overflow.
+const SNAPSHOT_BUFFER_LIMIT: usize = 100_000;
 
 /// Pre-parsed capture record for the S3 capture task.
 #[derive(Debug, Clone)]
@@ -61,21 +79,27 @@ pub enum PipelineCommand {
 enum DispatcherState {
     /// Normal operation — forward events to pipeline.
     Streaming,
-    /// Recovering from a sequence gap.
-    /// Buffer DBO messages while waiting for snapshot response.
-    Recovering {
+    /// Loading a snapshot — either initial cold-start or gap recovery.
+    ///
+    /// In this state:
+    ///   - 116 (ResponseDepthByOrderSnapshot) entries are applied immediately
+    ///   - 160 (DepthByOrder) incrementals are buffered for replay after 161
+    ///   - 161 triggers buffer replay, SnapshotComplete, and → Streaming
+    LoadingSnapshot {
         /// Buffered raw DBO messages (decoded DepthByOrder + sequence number).
         buffer: VecDeque<(rti::DepthByOrder, u64)>,
         /// Whether the buffer overflowed (discard all buffered on completion).
         buffer_overflowed: bool,
+        /// Number of 116 snapshot entries received (diagnostics).
+        snapshot_levels: u64,
     },
 }
 
 /// Run the dispatcher task.
 ///
 /// Reads raw WebSocket binary messages from `raw_msg_rx`, decodes them,
-/// and routes to the appropriate downstream channels. Handles sequence
-/// gap recovery by requesting a DBO snapshot and rebuilding the book.
+/// and routes to the appropriate downstream channels. Handles both cold-start
+/// snapshot loading and sequence gap recovery via unified LoadingSnapshot state.
 pub async fn run_dispatcher(
     mut raw_msg_rx: mpsc::Receiver<Vec<u8>>,
     order_event_tx: mpsc::Sender<PipelineCommand>,
@@ -90,9 +114,13 @@ pub async fn run_dispatcher(
 ) -> Result<(), RithmicError> {
     let mut order_id_map = OrderIdMap::new();
     let mut last_sequence: Option<u64> = None;
+    // Start Streaming so incremental DBO messages are processed immediately.
+    // The first 116 (ResponseDepthByOrderSnapshot) message transitions us to
+    // LoadingSnapshot and sends ClearBook.  The pipeline starts with
+    // in_recovery=true independently, so no BBO validation runs against the
+    // partial pre-snapshot book state.
     let mut state = DispatcherState::Streaming;
-    let mut snapshot_active = false; // tracks initial DBO snapshot (116→161 sequence)
-    let mut dbo_streak: u64 = 0; // consecutive DBO messages without gap; must reach MIN before gap detection
+    let mut dbo_streak: u64 = 0;
     let epoch = Instant::now();
 
     /// Minimum consecutive DBO messages before gap detection activates.
@@ -156,12 +184,13 @@ pub async fn run_dispatcher(
                                             last + 1, seq
                                         );
 
-                                        // Transition to Recovering state
+                                        // Transition to LoadingSnapshot, buffer the gap message
                                         let mut buffer = VecDeque::new();
                                         buffer.push_back((dbo, seq));
-                                        state = DispatcherState::Recovering {
+                                        state = DispatcherState::LoadingSnapshot {
                                             buffer,
                                             buffer_overflowed: false,
+                                            snapshot_levels: 0,
                                         };
 
                                         // Signal pipeline to clear book before snapshot rebuild
@@ -171,7 +200,7 @@ pub async fn run_dispatcher(
                                             ));
                                         }
 
-                                        // Send RequestDepthByOrderSnapshot via ws_cmd_tx
+                                        // Request new snapshot via WebSocket
                                         let snap_req = subscription::request_dbo_snapshot(&symbol, &exchange);
                                         let encoded = encode_ws_message(&snap_req);
                                         if let tokio_tungstenite::tungstenite::protocol::Message::Binary(data) = encoded {
@@ -204,20 +233,20 @@ pub async fn run_dispatcher(
                         }
                     }
 
-                    DispatcherState::Recovering { buffer, buffer_overflowed } => {
-                        // Buffer the DBO message for replay after snapshot
+                    DispatcherState::LoadingSnapshot { buffer, buffer_overflowed, .. } => {
+                        // Buffer the DBO message for replay after 161 confirms snapshot end.
+                        // Do NOT forward to pipeline — the book is being rebuilt from 116s.
                         if let Some(seq) = dbo.sequence_number {
-                            if buffer.len() < RECOVERY_BUFFER_LIMIT {
+                            if buffer.len() < SNAPSHOT_BUFFER_LIMIT {
                                 buffer.push_back((dbo, seq));
                             } else if !*buffer_overflowed {
                                 *buffer_overflowed = true;
                                 eprintln!(
-                                    "[dispatcher] recovery buffer overflow ({} messages), \
-                                     will rely on snapshot only",
-                                    RECOVERY_BUFFER_LIMIT
+                                    "[dispatcher] snapshot buffer overflow ({} messages), \
+                                     will rely on snapshot only after 161",
+                                    SNAPSHOT_BUFFER_LIMIT
                                 );
                             }
-                            // If overflowed, just drop the message (it's still captured above)
                         }
                     }
                 }
@@ -226,32 +255,140 @@ pub async fn run_dispatcher(
             }
 
             // ResponseDepthByOrderSnapshot (116) — snapshot data (initial or recovery)
+            //
+            // Rithmic uses the multi-response pattern for snapshots:
+            //   - Data messages:   rp_code is EMPTY, rq_handler_rp_code[0]=="0"
+            //   - Sentinel message: rp_code is NON-EMPTY (signals end-of-snapshot)
+            //
+            // There is no separate DepthByOrderEndEvent (161) for snapshot completion.
+            // We detect the sentinel here and trigger the same replay+SnapshotComplete
+            // logic that a 161 would have triggered.
             116 => {
                 let snap = match rti::ResponseDepthByOrderSnapshot::decode(payload) {
                     Ok(s) => s,
                     Err(_) => continue,
                 };
 
-                // On the first 116 in a sequence while Streaming, send ClearBook
-                // so the pipeline resets the book before snapshot entries arrive.
-                if let DispatcherState::Streaming = &state {
-                    if !snapshot_active {
-                        snapshot_active = true;
-                        if order_event_tx.send(PipelineCommand::ClearBook).await.is_err() {
-                            return Err(RithmicError::Channel(
-                                "order_event_tx closed during initial snapshot".into(),
-                            ));
-                        }
-                        eprintln!("[dispatcher] initial DBO snapshot started — ClearBook sent");
+                // Detect sentinel: rp_code non-empty means end-of-snapshot.
+                let is_sentinel = snap.rp_code
+                    .as_deref()
+                    .map(|codes| !codes.is_empty())
+                    .unwrap_or(false);
+
+                if is_sentinel {
+                    // --- Snapshot terminator ---
+                    eprintln!(
+                        "[dispatcher] snapshot sentinel received: rp_code={:?} seq={:?}",
+                        snap.rp_code, snap.sequence_number
+                    );
+
+                    let snapshot_end_seq = snap.sequence_number
+                        .or(last_sequence)
+                        .unwrap_or(0);
+
+                    if let Some(seq) = snap.sequence_number {
+                        last_sequence = Some(seq);
                     }
+
+                    match std::mem::replace(&mut state, DispatcherState::Streaming) {
+                        DispatcherState::LoadingSnapshot { buffer, buffer_overflowed, snapshot_levels } => {
+                            eprintln!(
+                                "[dispatcher] snapshot complete: end_seq={}, snapshot_levels={}, \
+                                 buffered={}, overflowed={}",
+                                snapshot_end_seq, snapshot_levels, buffer.len(), buffer_overflowed
+                            );
+
+                            if !buffer_overflowed {
+                                let mut replayed = 0u64;
+                                let mut discarded = 0u64;
+                                for (dbo, seq) in buffer {
+                                    if seq <= snapshot_end_seq {
+                                        discarded += 1;
+                                        continue;
+                                    }
+                                    let events = adapter::depth_by_order_to_events(
+                                        &dbo, instrument_id, &mut order_id_map,
+                                    );
+                                    for event in events {
+                                        if order_event_tx
+                                            .send(PipelineCommand::Event(event))
+                                            .await
+                                            .is_err()
+                                        {
+                                            return Err(RithmicError::Channel(
+                                                "order_event_tx closed during replay".into(),
+                                            ));
+                                        }
+                                    }
+                                    last_sequence = Some(seq);
+                                    replayed += 1;
+                                }
+                                eprintln!(
+                                    "[dispatcher] replay complete: replayed={}, discarded={}",
+                                    replayed, discarded
+                                );
+                            } else {
+                                eprintln!(
+                                    "[dispatcher] snapshot complete (buffer overflowed — \
+                                     relying on snapshot state only)"
+                                );
+                            }
+
+                            counters.inc_snapshot_recoveries();
+                            dbo_streak = 0;
+
+                            if order_event_tx.send(PipelineCommand::SnapshotComplete).await.is_err() {
+                                return Err(RithmicError::Channel(
+                                    "order_event_tx closed after snapshot complete".into(),
+                                ));
+                            }
+                        }
+
+                        DispatcherState::Streaming => {
+                            // Sentinel outside LoadingSnapshot — unexpected, ignore.
+                            eprintln!(
+                                "[dispatcher] WARNING: snapshot sentinel outside snapshot \
+                                 context (seq={:?}) — ignoring",
+                                snap.sequence_number
+                            );
+                        }
+                    }
+
+                    counters.inc_processed();
+                    continue;
                 }
 
-                // Track the sequence number from snapshot responses
+                // --- Normal data message ---
+
+                // Enter LoadingSnapshot on first 116 while in Streaming state (cold start).
+                // For gap recovery, we're already in LoadingSnapshot when 116s arrive.
+                if let DispatcherState::Streaming = &state {
+                    state = DispatcherState::LoadingSnapshot {
+                        buffer: VecDeque::new(),
+                        buffer_overflowed: false,
+                        snapshot_levels: 0,
+                    };
+                    if order_event_tx.send(PipelineCommand::ClearBook).await.is_err() {
+                        return Err(RithmicError::Channel(
+                            "order_event_tx closed during initial snapshot".into(),
+                        ));
+                    }
+                    eprintln!("[dispatcher] initial DBO snapshot started — ClearBook sent");
+                }
+
+                // Track sequence number from snapshot for post-snapshot gap detection
                 if let Some(seq) = snap.sequence_number {
                     last_sequence = Some(seq);
                 }
 
-                // Convert snapshot entries to OrderEvents and send to pipeline
+                // Count snapshot levels for diagnostics
+                if let DispatcherState::LoadingSnapshot { snapshot_levels, .. } = &mut state {
+                    *snapshot_levels += 1;
+                }
+
+                // Convert snapshot entries to OrderEvents and send to pipeline.
+                // The pipeline is in recovery mode (in_recovery=true), so BBO
+                // validation is suppressed while these are applied.
                 let events = adapter::snapshot_response_to_events(&snap, instrument_id, &mut order_id_map);
                 for event in events {
                     if order_event_tx.send(PipelineCommand::Event(event)).await.is_err() {
@@ -262,7 +399,9 @@ pub async fn run_dispatcher(
                 counters.inc_processed();
             }
 
-            // DepthByOrderEndEvent (161) — snapshot completion marker
+            // DepthByOrderEndEvent (161) — kept as fallback; Rithmic typically signals
+            // snapshot completion via the rp_code sentinel on the final 116 message
+            // rather than a separate 161.  If a 161 does arrive, handle it the same way.
             161 => {
                 let end_event = match rti::DepthByOrderEndEvent::decode(payload) {
                     Ok(e) => e,
@@ -270,7 +409,7 @@ pub async fn run_dispatcher(
                 };
 
                 match std::mem::replace(&mut state, DispatcherState::Streaming) {
-                    DispatcherState::Recovering { buffer, buffer_overflowed } => {
+                    DispatcherState::LoadingSnapshot { buffer, buffer_overflowed, snapshot_levels } => {
                         let snapshot_end_seq = end_event.sequence_number
                             .or(last_sequence)
                             .unwrap_or(0);
@@ -280,12 +419,12 @@ pub async fn run_dispatcher(
                         }
 
                         eprintln!(
-                            "[dispatcher] snapshot complete: end_seq={}, buffered={}, overflowed={}",
-                            snapshot_end_seq, buffer.len(), buffer_overflowed
+                            "[dispatcher] snapshot complete (via 161): end_seq={}, \
+                             snapshot_levels={}, buffered={}, overflowed={}",
+                            snapshot_end_seq, snapshot_levels, buffer.len(), buffer_overflowed
                         );
 
                         if !buffer_overflowed {
-                            // Replay buffered events with seq > snapshot_end_seq
                             let mut replayed = 0u64;
                             let mut discarded = 0u64;
                             for (dbo, seq) in buffer {
@@ -293,7 +432,6 @@ pub async fn run_dispatcher(
                                     discarded += 1;
                                     continue;
                                 }
-                                // Apply this event — it's newer than the snapshot
                                 let events = adapter::depth_by_order_to_events(
                                     &dbo, instrument_id, &mut order_id_map,
                                 );
@@ -312,46 +450,30 @@ pub async fn run_dispatcher(
                                 replayed += 1;
                             }
                             eprintln!(
-                                "[dispatcher] recovery complete: replayed={}, discarded={}",
+                                "[dispatcher] replay complete: replayed={}, discarded={}",
                                 replayed, discarded
                             );
                         } else {
-                            // Buffer overflowed — rely entirely on snapshot + new stream
                             eprintln!(
-                                "[dispatcher] recovery complete (buffer overflowed, no replay)"
+                                "[dispatcher] snapshot complete (buffer overflowed — \
+                                 relying on snapshot state only)"
                             );
                         }
 
                         counters.inc_snapshot_recoveries();
-                        dbo_streak = 0; // reset streak after recovery
+                        dbo_streak = 0;
 
-                        // Signal pipeline that snapshot/recovery is complete
                         if order_event_tx.send(PipelineCommand::SnapshotComplete).await.is_err() {
                             return Err(RithmicError::Channel(
-                                "order_event_tx closed during recovery complete".into(),
+                                "order_event_tx closed after snapshot complete".into(),
                             ));
                         }
-                        // state is already set to Streaming by std::mem::replace above
                     }
 
                     DispatcherState::Streaming => {
-                        // DepthByOrderEndEvent outside recovery — marks end of
-                        // initial subscription snapshot.
-                        if let Some(seq) = end_event.sequence_number {
-                            last_sequence = Some(seq);
-                        }
-                        snapshot_active = false;
-                        dbo_streak = 0; // reset streak after initial snapshot
-
-                        // Signal pipeline that snapshot loading is done
-                        if order_event_tx.send(PipelineCommand::SnapshotComplete).await.is_err() {
-                            return Err(RithmicError::Channel(
-                                "order_event_tx closed during snapshot complete".into(),
-                            ));
-                        }
-
                         eprintln!(
-                            "[dispatcher] initial snapshot complete: seq={:?}",
+                            "[dispatcher] WARNING: 161 received outside snapshot context \
+                             (seq={:?}) — ignoring",
                             end_event.sequence_number
                         );
                     }
@@ -384,8 +506,8 @@ pub async fn run_dispatcher(
                     }
                 }
 
-                // Trades are forwarded even during recovery — they don't affect
-                // book state (action='T') and the book builder handles them safely.
+                // Trades are forwarded even during snapshot loading — they don't affect
+                // book state (action='T') and are safe to apply at any time.
                 if let Some(event) = adapter::last_trade_to_event(&trade, instrument_id) {
                     if order_event_tx.send(PipelineCommand::Event(event)).await.is_err() {
                         return Err(RithmicError::Channel("order_event_tx closed".into()));
@@ -419,7 +541,7 @@ pub async fn run_dispatcher(
                     }
                 }
 
-                // BBO always forwarded (even during recovery — for latest state)
+                // BBO always forwarded — pipeline suppresses validation during recovery
                 if let Some(update) = adapter::best_bid_offer_to_update(&bbo) {
                     if bbo_tx.send(update).await.is_err() {
                         return Err(RithmicError::Channel("bbo_tx closed".into()));
@@ -448,8 +570,7 @@ pub async fn run_dispatcher(
                         resp.rp_code, resp.user_msg
                     );
                 }
-                // Reset sequence tracking — first DBO after subscription start
-                // will have a fresh sequence baseline.
+                // Reset sequence tracking — the incremental stream starts fresh
                 last_sequence = None;
                 dbo_streak = 0;
                 counters.inc_processed();
@@ -472,6 +593,14 @@ pub async fn run_dispatcher(
                 counters.inc_processed();
             }
 
+            // ResponseLogout (13) — graceful server-initiated session close
+            13 => {
+                eprintln!("[dispatcher] server sent ResponseLogout — closing");
+                return Err(RithmicError::ForcedLogout(
+                    "server graceful logout".to_string(),
+                ));
+            }
+
             // ForcedLogout (77)
             77 => {
                 if let Ok(logout) = rti::ForcedLogout::decode(payload) {
@@ -491,7 +620,6 @@ pub async fn run_dispatcher(
                 counters.inc_processed();
             }
         }
-
     }
 
     Ok(())

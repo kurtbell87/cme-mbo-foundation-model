@@ -109,21 +109,33 @@ After every session that changes the codebase, update:
 3. **`.kit/CONSTRUCTION_LOG.md`** — Progress notes (Math).
 4. **This file's "Current State" section** — Keep it current.
 
-## Current State (updated 2026-03-01)
+## Current State (updated 2026-03-03)
 
 - **Build:** GREEN — compiles clean, 0 warnings
-- **Tests:** 282+ passed (47 in new/modified crates), 1 pre-existing failure (parity_test_reports_bar_count), 15 ignored
-- **Branch:** `feat/phase3-rithmic-live-pipeline`
-- **Active research thread:** Thread 03 — Event-Level LOB Probability Model (see `research/03-event-lob-probability/README.md`)
+- **Tests:** All pass, 0 failures
+- **Branch:** `fix/161-snapshot-complete`
 
-### New crates (Thread 03):
-- `crates/event-features/` — 42 LOB features + geometry inputs (11 tests)
-- `crates/event-labels/` — tick-level barrier simulation from bid/ask entry (9 tests)
-- `tools/event-export/` — event-level Parquet export binary
-- `tools/event-backtest/` — CPCV + serial PnL backtest scaffolding
+### C++ Pipeline: RETIRED
 
-### Key changes:
-- `CommittedState` now public with `bbo_changed` flag
-- `DayIngestResult` exposes `committed_states` filtered to RTH
-- Research directory structure: `research/{01,02,03}/` with full thread docs
-- Next: Local 5-day export validation, then EC2 batch export + CPCV training
+The C++ MBO-DL pipeline (`MBO-DL-02152026`) is **deprecated and will not be revisited.** The Rust pipeline is now the sole ground truth. Reasons:
+- The C++ model was trained on mid-price features, which are not tradeable
+- Rust pipeline is fully validated and production-ready
+- `tools/parity-test/` and `FEATURE_PARITY_SPEC.md` are historical artifacts — do not invest further effort in C++ parity
+
+### Feature Design Direction
+
+Mid-price based features (`high_mid`, `low_mid`, `close_mid`, returns, volatility, HLR50, close_position) are **out**. Features must be grounded in tradeable prices:
+- Last **trade price** for close/open/returns
+- **Bid/ask** for position and range metrics
+- **VWAP**, spread, and order book imbalance remain valid
+
+### Phase Status
+
+| Phase | Status |
+|-------|--------|
+| 0–0c (Parity infrastructure) | DONE — retired with C++ |
+| 1 (XGBoost-ffi) | DONE |
+| 2 (Rithmic protobuf + msg-161) | DONE |
+| 3 (Rithmic WebSocket Client) | **NEXT** |
+| 4 (Streaming Live Pipeline) | Blocked on 3 |
+| 5 (Trading Engine) | Blocked on 3 |

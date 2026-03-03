@@ -9,11 +9,17 @@ use crate::BarBuilder;
 ///
 /// Emits a bar every `interval_seconds` seconds (e.g., 5 for 5-second bars).
 /// Uses snapshot count to determine bar boundaries (interval_ns / SNAPSHOT_INTERVAL_NS).
+///
+/// Bars are contiguous: the previous bar's close_mid seeds the next bar's high/low
+/// accumulator (matching C++ bar_builder_base contiguous initialization), so the
+/// carry-over open price is included in the new bar's high/low tracking.
 pub struct TimeBarBuilder {
     #[allow(dead_code)]
     interval_ns: u64,
     snaps_per_bar: u64,
     acc: BarAccumulator,
+    /// Previous bar's close_mid, used to seed next bar's high/low (C++ contiguous init).
+    prev_close_mid: Option<f32>,
 }
 
 impl TimeBarBuilder {
@@ -24,6 +30,7 @@ impl TimeBarBuilder {
             interval_ns,
             snaps_per_bar,
             acc: BarAccumulator::default(),
+            prev_close_mid: None,
         }
     }
 }
@@ -34,12 +41,20 @@ impl BarBuilder for TimeBarBuilder {
 
         if !self.acc.active {
             self.acc.start_bar_at(snap);
+            // Contiguous bar initialization: seed high/low from previous bar's close_mid.
+            // This ensures the carry-over open price is included in the bar's range,
+            // matching C++ bar_builder_base behavior.
+            if let Some(prev_close) = self.prev_close_mid {
+                self.acc.high_mid = self.acc.high_mid.max(prev_close);
+                self.acc.low_mid = self.acc.low_mid.min(prev_close);
+            }
         }
 
         self.acc.update_bar(snap, &trade);
 
         if self.acc.snapshot_count as u64 >= self.snaps_per_bar {
             if let Some(mut bar) = self.acc.finalize_bar() {
+                self.prev_close_mid = Some(bar.close_mid);
                 bar.bar_duration_s =
                     self.interval_ns as f32 / time_utils::NS_PER_SEC as f32;
                 return Some(bar);
