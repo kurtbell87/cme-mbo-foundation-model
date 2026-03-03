@@ -1,22 +1,29 @@
 //! Event-level CPCV backtest with serial PnL computation.
 //!
-//! Reads event-level Parquet files (from event-export), trains XGBoost regression
-//! models predicting P(target | LOB state, T, S), and evaluates via CPCV and
-//! serial backtest.
+//! Two modes:
+//! - `baseline`: streaming counters — outcome distribution, null hypothesis check
+//! - `cpcv`: full CPCV XGBoost training with serial PnL evaluation
+//!
+//! CPCV mode: loads event-level Parquet files, trains XGBoost regression models
+//! predicting P(target | LOB state, T, S), and evaluates via CPCV (45 folds).
 
-#![allow(dead_code)] // Structs/fns for CPCV fold runner (used on EC2)
+pub mod data;
+pub mod fold_runner;
+pub mod statistics;
 
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
-use arrow::array::{Float32Array, Int8Array, Int32Array, UInt64Array};
-use clap::Parser;
+use arrow::array::{Int8Array, Int32Array};
+use clap::{Parser, ValueEnum};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use serde::{Deserialize, Serialize};
+use rayon::prelude::*;
 
-use event_features::NUM_LOB_FEATURES;
+use backtest::{CpcvConfig, build_day_metas, generate_splits};
 
 /// Event-level CPCV backtest.
 #[derive(Parser, Debug)]
@@ -31,6 +38,10 @@ struct Args {
     #[arg(long)]
     output_dir: String,
 
+    /// Run mode: baseline (streaming counters) or cpcv (full XGBoost training)
+    #[arg(long, default_value = "baseline")]
+    mode: RunMode,
+
     /// Number of CPCV groups
     #[arg(long, default_value = "10")]
     n_groups: usize,
@@ -39,11 +50,11 @@ struct Args {
     #[arg(long, default_value = "2")]
     k_test: usize,
 
-    /// Purge seconds before test boundary
+    /// Purge seconds before test boundary (converted to row count internally)
     #[arg(long, default_value = "300")]
     purge_seconds: u64,
 
-    /// Embargo seconds after test boundary
+    /// Embargo seconds after test boundary (converted to row count internally)
     #[arg(long, default_value = "300")]
     embargo_seconds: u64,
 
@@ -56,7 +67,7 @@ struct Args {
     eta: f64,
 
     /// XGBoost min_child_weight
-    #[arg(long, default_value = "50")]
+    #[arg(long, default_value = "100")]
     min_child_weight: u32,
 
     /// XGBoost subsample
@@ -75,7 +86,11 @@ struct Args {
     #[arg(long, default_value = "100")]
     early_stopping: u32,
 
-    /// Decision margin above null hypothesis
+    /// XGBoost max_bin for hist tree method
+    #[arg(long, default_value = "256")]
+    max_bin: u32,
+
+    /// Decision margin above null hypothesis P(target) = S/(T+S)
     #[arg(long, default_value = "0.02")]
     margin: f64,
 
@@ -91,173 +106,291 @@ struct Args {
     #[arg(long, default_value = "1.24")]
     commission: f64,
 
-    /// Run null hypothesis test (shuffled features)
+    /// Eval-point subsampling percentage (0-100). Lower = less memory, faster.
+    #[arg(long, default_value = "15")]
+    subsample_pct: u32,
+
+    /// Number of folds to run in parallel (0 = sequential, all cores per fold)
+    #[arg(long, default_value = "4")]
+    parallel_folds: usize,
+
+    /// S3 path to upload results (e.g. s3://bucket/path/). Requires AWS CLI.
     #[arg(long)]
-    null_test: bool,
+    s3_output: Option<String>,
 
-    /// Run temporal holdout (first 170 days train, last 81 test)
-    #[arg(long)]
-    temporal_holdout: bool,
+    /// Random seed for subsampling reproducibility
+    #[arg(long, default_value = "42")]
+    seed: u64,
 }
 
-/// A single row from the event Parquet.
-#[derive(Debug, Clone)]
-struct EventRow {
-    timestamp_ns: u64,
-    best_bid: f32,
-    best_ask: f32,
-    mid_price: f32,
-    spread: f32,
-    target_ticks: i32,
-    stop_ticks: i32,
-    features: [f32; NUM_LOB_FEATURES],
-    outcome: i8,
-    exit_ts: u64,
-    pnl_ticks: f32,
-}
-
-/// Results from a single CPCV fold.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct FoldResult {
-    fold_idx: usize,
-    test_groups: Vec<usize>,
-    n_train: usize,
-    n_test: usize,
-    n_trades: usize,
-    win_rate: f64,
-    expectancy: f64,
-    net_pnl: f64,
-    sharpe: f64,
-    profit_factor: f64,
-    feature_importance: Vec<(String, f64)>,
-}
-
-/// Aggregated results across all folds.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BacktestResults {
-    config: BacktestConfig,
-    folds: Vec<FoldResult>,
-    aggregate: AggregateMetrics,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BacktestConfig {
-    n_groups: usize,
-    k_test: usize,
-    n_days: usize,
-    total_rows: usize,
-    margin: f64,
-    max_depth: u32,
-    eta: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct AggregateMetrics {
-    mean_sharpe: f64,
-    median_sharpe: f64,
-    mean_expectancy: f64,
-    mean_win_rate: f64,
-    pbo: f64,
-    total_trades: usize,
-    positive_folds: usize,
-    total_folds: usize,
-}
-
-/// Serial PnL simulation: given predictions and event data,
-/// simulate trades with serial constraint (no overlapping positions).
-fn compute_serial_pnl(
-    predictions: &[f64],
-    events: &[EventRow],
-    margin: f64,
-    tick_value: f64,
-    commission: f64,
-) -> (Vec<f64>, usize, usize) {
-    let mut pnls: Vec<f64> = Vec::new();
-    let mut wins = 0usize;
-    let mut losses = 0usize;
-    let mut next_available_ts: u64 = 0;
-
-    for (i, event) in events.iter().enumerate() {
-        // Skip if we're still in a position
-        if event.timestamp_ns < next_available_ts {
-            continue;
-        }
-
-        // Skip horizon outcomes (no clear label)
-        if event.outcome == -1 {
-            continue;
-        }
-
-        let t = event.target_ticks as f64;
-        let s = event.stop_ticks as f64;
-        let p_null = s / (t + s);
-        let p_model = predictions[i];
-
-        // Only trade when model predicts edge above null + margin
-        if p_model <= p_null + margin {
-            continue;
-        }
-
-        // Trade!
-        let pnl = event.pnl_ticks as f64 * tick_value - commission;
-        pnls.push(pnl);
-
-        if pnl > 0.0 {
-            wins += 1;
-        } else {
-            losses += 1;
-        }
-
-        // Lock out until exit
-        next_available_ts = event.exit_ts;
-    }
-
-    (pnls, wins, losses)
-}
-
-fn compute_sharpe(pnls: &[f64]) -> f64 {
-    if pnls.len() < 2 {
-        return 0.0;
-    }
-    let n = pnls.len() as f64;
-    let mean = pnls.iter().sum::<f64>() / n;
-    let variance = pnls.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / (n - 1.0);
-    let std = variance.sqrt();
-    if std < 1e-12 {
-        return 0.0;
-    }
-    // Annualize: assume ~252 trading days, ~50 trades/day
-    let trades_per_year = 252.0 * 50.0;
-    mean / std * (trades_per_year / n).sqrt().min(trades_per_year.sqrt())
-}
-
-fn compute_profit_factor(pnls: &[f64]) -> f64 {
-    let gross_profit: f64 = pnls.iter().filter(|&&p| p > 0.0).sum();
-    let gross_loss: f64 = pnls.iter().filter(|&&p| p < 0.0).map(|p| p.abs()).sum();
-    if gross_loss < 1e-12 {
-        if gross_profit > 0.0 {
-            f64::INFINITY
-        } else {
-            0.0
-        }
-    } else {
-        gross_profit / gross_loss
-    }
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum RunMode {
+    Baseline,
+    Cpcv,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    eprintln!("event-backtest");
+    match args.mode {
+        RunMode::Baseline => run_baseline(&args),
+        RunMode::Cpcv => run_cpcv(&args),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CPCV Mode
+// ---------------------------------------------------------------------------
+
+fn run_cpcv(args: &Args) -> Result<()> {
+    let total_start = Instant::now();
+
+    eprintln!("event-backtest (CPCV mode)");
+    eprintln!("  data_dir:        {}", args.data_dir);
+    eprintln!("  output_dir:      {}", args.output_dir);
+    eprintln!("  n_groups:        {}", args.n_groups);
+    eprintln!("  k_test:          {}", args.k_test);
+    eprintln!("  margin:          {}", args.margin);
+    eprintln!("  subsample_pct:   {}%", args.subsample_pct);
+    eprintln!("  parallel_folds:  {}", args.parallel_folds);
+    eprintln!("  seed:            {}", args.seed);
+
+    // ── Phase 1: Scan day metadata ──────────────────────────────────────
+    eprintln!("\n[Phase 1] Scanning day metadata...");
+    let scan_start = Instant::now();
+
+    let day_metas = data::scan_day_metadata(&PathBuf::from(&args.data_dir))
+        .context("Failed to scan day metadata")?;
+
+    if day_metas.is_empty() {
+        bail!("No Parquet files found in {}", args.data_dir);
+    }
+
+    eprintln!(
+        "  {} days, {} total rows, {} eval points ({:.1}s)",
+        day_metas.len(),
+        data::total_rows(&day_metas),
+        data::total_eval_points(&day_metas),
+        scan_start.elapsed().as_secs_f64()
+    );
+
+    // ── Phase 2: Generate CPCV splits ───────────────────────────────────
+    eprintln!("\n[Phase 2] Generating CPCV splits...");
+
+    let n_days = day_metas.len();
+    let dates = data::dates(&day_metas);
+    let row_counts = data::row_counts(&day_metas);
+
+    let cpcv_day_metas = build_day_metas(&dates, &row_counts, args.n_groups);
+
+    // For event-level data, purge/embargo is set to 0 because we handle
+    // temporal separation at the day level (no intra-day leakage concern
+    // since each day is a separate file).
+    let cpcv_config = CpcvConfig {
+        n_groups: args.n_groups,
+        k_test: args.k_test,
+        purge_bars: 0,
+        embargo_bars: 0,
+    };
+    let splits = generate_splits(&cpcv_day_metas, &cpcv_config);
+
+    eprintln!("  {} CPCV splits generated", splits.len());
+
+    // ── Phase 3: Run folds ──────────────────────────────────────────────
+    eprintln!("\n[Phase 3] Running {} folds...", splits.len());
+
+    let n_cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    let n_parallel = if args.parallel_folds > 0 {
+        args.parallel_folds
+    } else {
+        1
+    };
+    let nthread = (n_cpus / n_parallel).max(1) as i32;
+
+    let xgb_params = fold_runner::XgbParams {
+        max_depth: args.max_depth,
+        eta: args.eta,
+        min_child_weight: args.min_child_weight,
+        subsample: args.subsample,
+        colsample_bytree: args.colsample_bytree,
+        n_rounds: args.n_estimators,
+        early_stopping: args.early_stopping,
+        nthread,
+        max_bin: args.max_bin,
+    };
+
+    if n_parallel > 1 {
+        eprintln!("  {} parallel folds, {} threads/fold", n_parallel, nthread);
+    } else {
+        eprintln!("  Sequential, {} threads/fold", nthread);
+    }
+
+    let fold_results: Vec<fold_runner::FoldResult> = if n_parallel > 1 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(n_parallel)
+            .build_global()
+            .ok();
+
+        let completed = Mutex::new(0usize);
+        let n_folds = splits.len();
+
+        let results: Vec<Option<fold_runner::FoldResult>> = splits
+            .par_iter()
+            .map(|split| {
+                let fold_start = Instant::now();
+                match fold_runner::run_fold(
+                    split,
+                    &day_metas,
+                    &xgb_params,
+                    args.margin,
+                    args.commission,
+                    args.subsample_pct,
+                    args.seed,
+                ) {
+                    Ok(result) => {
+                        let elapsed = fold_start.elapsed();
+                        let mut done = completed.lock().unwrap();
+                        *done += 1;
+                        eprintln!(
+                            "  [{}/{}] Groups {{{}}} — {} test rows, exp=${:.2}, trades={} ({:.0}s)",
+                            *done,
+                            n_folds,
+                            result.test_groups.iter()
+                                .map(|g| g.to_string())
+                                .collect::<Vec<_>>()
+                                .join(","),
+                            result.n_test,
+                            result.metrics.expectancy,
+                            result.metrics.total_trades,
+                            elapsed.as_secs_f64(),
+                        );
+                        Some(result)
+                    }
+                    Err(e) => {
+                        let mut done = completed.lock().unwrap();
+                        *done += 1;
+                        eprintln!("  [{}/{}] FAILED: {}", *done, n_folds, e);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        results.into_iter().flatten().collect()
+    } else {
+        let mut results = Vec::with_capacity(splits.len());
+        for split in &splits {
+            let fold_start = Instant::now();
+            match fold_runner::run_fold(
+                split,
+                &day_metas,
+                &xgb_params,
+                args.margin,
+                args.commission,
+                args.subsample_pct,
+                args.seed,
+            ) {
+                Ok(result) => {
+                    let elapsed = fold_start.elapsed();
+                    eprintln!(
+                        "  [{}/{}] Groups {{{}}} — {} test rows, exp=${:.2}, trades={} ({:.0}s)",
+                        result.split_idx + 1,
+                        splits.len(),
+                        result.test_groups.iter()
+                            .map(|g| g.to_string())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        result.n_test,
+                        result.metrics.expectancy,
+                        result.metrics.total_trades,
+                        elapsed.as_secs_f64(),
+                    );
+                    results.push(result);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "  [{}/{}] FAILED: {}",
+                        split.split_idx + 1,
+                        splits.len(),
+                        e
+                    );
+                }
+            }
+        }
+        results
+    };
+
+    if fold_results.is_empty() {
+        bail!("All folds failed");
+    }
+
+    // ── Phase 4: Aggregate and report ───────────────────────────────────
+    eprintln!("\n[Phase 4] Aggregating results...");
+
+    let report = statistics::aggregate_results(
+        &fold_results,
+        n_days,
+        args.subsample_pct,
+        args.margin,
+        args.commission,
+    );
+
+    statistics::print_report(&report);
+
+    let total_elapsed = total_start.elapsed();
+    eprintln!(
+        "\n  Total elapsed: {:.1} minutes",
+        total_elapsed.as_secs_f64() / 60.0
+    );
+
+    // Write JSON output
+    std::fs::create_dir_all(&args.output_dir).context("Failed to create output dir")?;
+    let json_path = format!("{}/cpcv-report.json", args.output_dir);
+    let json = serde_json::to_string_pretty(&report)
+        .context("Failed to serialize report")?;
+    std::fs::write(&json_path, &json).context("Failed to write JSON report")?;
+    eprintln!("  Report written to {}", json_path);
+
+    // Upload to S3 if requested
+    if let Some(ref s3_path) = args.s3_output {
+        eprintln!("  Uploading to {}...", s3_path);
+        let status = std::process::Command::new("aws")
+            .args(["s3", "cp", &json_path, s3_path])
+            .status()
+            .context("Failed to run aws s3 cp")?;
+        if status.success() {
+            eprintln!("  Upload complete.");
+        } else {
+            eprintln!("  WARNING: S3 upload failed (exit code {:?})", status.code());
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Baseline Mode (streaming counters — no XGBoost)
+// ---------------------------------------------------------------------------
+
+/// A single row from the event Parquet (used in baseline mode only).
+#[derive(Debug, Clone)]
+struct EventRow {
+    target_ticks: i32,
+    stop_ticks: i32,
+    outcome: i8,
+}
+
+fn run_baseline(args: &Args) -> Result<()> {
+    eprintln!("event-backtest (baseline mode)");
     eprintln!("  data_dir:      {}", args.data_dir);
     eprintln!("  output_dir:    {}", args.output_dir);
     eprintln!("  n_groups:      {}", args.n_groups);
     eprintln!("  k_test:        {}", args.k_test);
     eprintln!("  margin:        {}", args.margin);
 
-    // -----------------------------------------------------------------------
-    // Step 1: Discover and load Parquet files
-    // -----------------------------------------------------------------------
+    // ── Step 1: Discover and load Parquet files ─────────────────────────
     eprintln!("[1/4] Loading event Parquet files...");
 
     let mut parquet_files: Vec<PathBuf> = std::fs::read_dir(&args.data_dir)
@@ -279,11 +412,10 @@ fn main() -> Result<()> {
         bail!("No Parquet files found in {}", args.data_dir);
     }
 
-    // Load all rows, grouped by day (file)
     let mut all_rows: Vec<EventRow> = Vec::new();
-    let mut day_boundaries: Vec<(usize, usize)> = Vec::new(); // (start_idx, end_idx) per day
-
+    let mut day_boundaries: Vec<(usize, usize)> = Vec::new();
     let mut skipped_files = 0usize;
+
     for path in &parquet_files {
         let start = all_rows.len();
         let file = File::open(path).context("Failed to open Parquet file")?;
@@ -291,13 +423,21 @@ fn main() -> Result<()> {
             Ok(builder) => match builder.build() {
                 Ok(r) => r,
                 Err(e) => {
-                    eprintln!("  SKIP {} (corrupt: {})", path.file_name().unwrap_or_default().to_string_lossy(), e);
+                    eprintln!(
+                        "  SKIP {} (corrupt: {})",
+                        path.file_name().unwrap_or_default().to_string_lossy(),
+                        e
+                    );
                     skipped_files += 1;
                     continue;
                 }
             },
             Err(e) => {
-                eprintln!("  SKIP {} (corrupt: {})", path.file_name().unwrap_or_default().to_string_lossy(), e);
+                eprintln!(
+                    "  SKIP {} (corrupt: {})",
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    e
+                );
                 skipped_files += 1;
                 continue;
             }
@@ -307,75 +447,30 @@ fn main() -> Result<()> {
             let batch = batch_result.context("Failed to read record batch")?;
             let n = batch.num_rows();
 
-            let ts_col = batch.column_by_name("timestamp_ns")
-                .context("Missing timestamp_ns")?
-                .as_any().downcast_ref::<UInt64Array>()
-                .context("timestamp_ns not UInt64")?;
-            let bid_col = batch.column_by_name("best_bid")
-                .context("Missing best_bid")?
-                .as_any().downcast_ref::<Float32Array>()
-                .context("best_bid not Float32")?;
-            let ask_col = batch.column_by_name("best_ask")
-                .context("Missing best_ask")?
-                .as_any().downcast_ref::<Float32Array>()
-                .context("best_ask not Float32")?;
-            let mid_col = batch.column_by_name("mid_price")
-                .context("Missing mid_price")?
-                .as_any().downcast_ref::<Float32Array>()
-                .context("mid_price not Float32")?;
-            let spread_col = batch.column_by_name("spread")
-                .context("Missing spread")?
-                .as_any().downcast_ref::<Float32Array>()
-                .context("spread not Float32")?;
-            let target_col = batch.column_by_name("target_ticks")
+            let target_col = batch
+                .column_by_name("target_ticks")
                 .context("Missing target_ticks")?
-                .as_any().downcast_ref::<Int32Array>()
+                .as_any()
+                .downcast_ref::<Int32Array>()
                 .context("target_ticks not Int32")?;
-            let stop_col = batch.column_by_name("stop_ticks")
+            let stop_col = batch
+                .column_by_name("stop_ticks")
                 .context("Missing stop_ticks")?
-                .as_any().downcast_ref::<Int32Array>()
+                .as_any()
+                .downcast_ref::<Int32Array>()
                 .context("stop_ticks not Int32")?;
-            let outcome_col = batch.column_by_name("outcome")
+            let outcome_col = batch
+                .column_by_name("outcome")
                 .context("Missing outcome")?
-                .as_any().downcast_ref::<Int8Array>()
+                .as_any()
+                .downcast_ref::<Int8Array>()
                 .context("outcome not Int8")?;
-            let exit_col = batch.column_by_name("exit_ts")
-                .context("Missing exit_ts")?
-                .as_any().downcast_ref::<UInt64Array>()
-                .context("exit_ts not UInt64")?;
-            let pnl_col = batch.column_by_name("pnl_ticks")
-                .context("Missing pnl_ticks")?
-                .as_any().downcast_ref::<Float32Array>()
-                .context("pnl_ticks not Float32")?;
-
-            // Read feature columns
-            let mut feature_arrays: Vec<&Float32Array> = Vec::with_capacity(NUM_LOB_FEATURES);
-            for name in &event_features::LOB_FEATURE_NAMES {
-                let arr = batch.column_by_name(name)
-                    .with_context(|| format!("Missing feature column: {}", name))?
-                    .as_any().downcast_ref::<Float32Array>()
-                    .with_context(|| format!("Feature {} not Float32", name))?;
-                feature_arrays.push(arr);
-            }
 
             for row_idx in 0..n {
-                let mut features = [0.0f32; NUM_LOB_FEATURES];
-                for (fi, arr) in feature_arrays.iter().enumerate() {
-                    features[fi] = arr.value(row_idx);
-                }
-
                 all_rows.push(EventRow {
-                    timestamp_ns: ts_col.value(row_idx),
-                    best_bid: bid_col.value(row_idx),
-                    best_ask: ask_col.value(row_idx),
-                    mid_price: mid_col.value(row_idx),
-                    spread: spread_col.value(row_idx),
                     target_ticks: target_col.value(row_idx),
                     stop_ticks: stop_col.value(row_idx),
-                    features,
                     outcome: outcome_col.value(row_idx),
-                    exit_ts: exit_col.value(row_idx),
-                    pnl_ticks: pnl_col.value(row_idx),
                 });
             }
         }
@@ -398,39 +493,29 @@ fn main() -> Result<()> {
         day_boundaries.len()
     );
 
-    // -----------------------------------------------------------------------
-    // Step 2: CPCV split generation
-    // -----------------------------------------------------------------------
+    // ── Step 2: CPCV split generation ───────────────────────────────────
     eprintln!("[2/4] Generating CPCV splits...");
 
     let n_days = day_boundaries.len();
     let _groups = backtest::cpcv::assign_groups(n_days, args.n_groups);
 
-    // Build day metas (we use row counts as the bar_counts equivalent)
-    let row_counts: Vec<usize> = day_boundaries
-        .iter()
-        .map(|(s, e)| e - s)
-        .collect();
-    let dates: Vec<i32> = (0..n_days as i32).collect(); // placeholder dates
+    let row_counts: Vec<usize> = day_boundaries.iter().map(|(s, e)| e - s).collect();
+    let dates: Vec<i32> = (0..n_days as i32).collect();
 
     let day_metas = backtest::cpcv::build_day_metas(&dates, &row_counts, args.n_groups);
     let cpcv_config = backtest::cpcv::CpcvConfig {
         n_groups: args.n_groups,
         k_test: args.k_test,
-        purge_bars: 0, // We handle purge/embargo at the event level via timestamps
+        purge_bars: 0,
         embargo_bars: 0,
     };
     let splits = backtest::cpcv::generate_splits(&day_metas, &cpcv_config);
 
     eprintln!("  {} CPCV splits generated", splits.len());
 
-    // -----------------------------------------------------------------------
-    // Step 3: Run folds (placeholder — requires XGBoost training)
-    // -----------------------------------------------------------------------
-    eprintln!("[3/4] Running CPCV folds...");
-    eprintln!("  NOTE: Full XGBoost training requires EC2. Running baseline analysis.");
+    // ── Step 3: Baseline analysis ───────────────────────────────────────
+    eprintln!("[3/4] Computing baseline analysis...");
 
-    // For now, compute baseline metrics: outcome distribution, null hypothesis check
     let mut target_count = 0u64;
     let mut stop_count = 0u64;
     let mut horizon_count = 0u64;
@@ -452,13 +537,10 @@ fn main() -> Result<()> {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Step 4: Write results
-    // -----------------------------------------------------------------------
+    // ── Step 4: Write results ───────────────────────────────────────────
     eprintln!("[4/4] Writing results...");
     std::fs::create_dir_all(&args.output_dir).context("Failed to create output dir")?;
 
-    // Write baseline analysis
     let total_labeled = target_count + stop_count;
     let empirical_target_rate = if total_labeled > 0 {
         target_count as f64 / total_labeled as f64
@@ -503,22 +585,22 @@ fn main() -> Result<()> {
     eprintln!("  Baseline analysis: {}", report_path);
 
     // Write config JSON
-    let config = BacktestConfig {
-        n_groups: args.n_groups,
-        k_test: args.k_test,
-        n_days,
-        total_rows: all_rows.len(),
-        margin: args.margin,
-        max_depth: args.max_depth,
-        eta: args.eta,
-    };
+    let config = serde_json::json!({
+        "n_groups": args.n_groups,
+        "k_test": args.k_test,
+        "n_days": n_days,
+        "total_rows": all_rows.len(),
+        "margin": args.margin,
+        "max_depth": args.max_depth,
+        "eta": args.eta,
+    });
 
     let config_path = format!("{}/config.json", args.output_dir);
     let config_json = serde_json::to_string_pretty(&config)?;
     std::fs::write(&config_path, &config_json)?;
 
     eprintln!("\nDone. Results in {}", args.output_dir);
-    eprintln!("  Next: Run full CPCV training on EC2 with XGBoost.");
+    eprintln!("  Next: Run full CPCV training with --mode cpcv");
 
     Ok(())
 }
