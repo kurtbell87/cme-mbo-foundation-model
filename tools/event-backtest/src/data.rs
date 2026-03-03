@@ -129,68 +129,45 @@ pub fn load_day_subsampled(
     seed: u64,
 ) -> Result<DayChunk> {
     let threshold = subsample_pct * 10; // e.g. 15% → 150 out of 1000
-    load_day_impl(path, Some((threshold, seed)))
+    load_day_impl(path, Some((threshold, seed)), None)
 }
 
 /// Load one day's Parquet with NO subsampling (for test sets).
 /// Filters out horizon outcomes (outcome == -1).
 pub fn load_day_full(path: &Path) -> Result<DayChunk> {
-    load_day_impl(path, None)
+    load_day_impl(path, None, None)
 }
 
-/// Load one day's Parquet filtered to imbalance bar events.
+/// Load one day's Parquet filtered to imbalance bar events (streaming).
 ///
-/// Keeps only rows where |ofi_fast| > `ofi_threshold`. If `target_geometry`
-/// is Some((T, S)), further filters to that single geometry.
-/// No subsampling needed — the filtered dataset is small.
+/// Filters inline during batch reading — only rows where |ofi_fast| > threshold
+/// (and optionally matching a single geometry) are kept in memory.
+/// Peak memory: one Parquet batch (~64K rows) + accumulated output rows.
 pub fn load_day_imbalance(
     path: &Path,
     ofi_threshold: f32,
     target_geometry: Option<(i32, i32)>,
 ) -> Result<DayChunk> {
-    let mut chunk = load_day_impl(path, None)?;
+    let filter = ImbalanceFilter {
+        ofi_threshold,
+        target_geometry,
+    };
+    load_day_impl(path, None, Some(filter))
+}
 
-    // Filter in-place: keep only rows matching imbalance + geometry criteria
-    let mut keep = Vec::with_capacity(chunk.n_rows);
-    for event in &chunk.events {
-        let pass_ofi = event.ofi_fast.abs() > ofi_threshold;
-        let pass_geom = target_geometry
-            .map_or(true, |(t, s)| event.target_ticks == t && event.stop_ticks == s);
-        keep.push(pass_ofi && pass_geom);
-    }
-
-    let new_n = keep.iter().filter(|&&k| k).count();
-    if new_n == chunk.n_rows {
-        return Ok(chunk);
-    }
-
-    // Rebuild filtered vectors
-    let mut new_features = Vec::with_capacity(new_n * NUM_FEATURES);
-    let mut new_labels = Vec::with_capacity(new_n);
-    let mut new_events = Vec::with_capacity(new_n);
-
-    for (i, &kept) in keep.iter().enumerate() {
-        if kept {
-            let feat_start = i * NUM_FEATURES;
-            new_features.extend_from_slice(&chunk.features[feat_start..feat_start + NUM_FEATURES]);
-            new_labels.push(chunk.labels[i]);
-            new_events.push(chunk.events[i]);
-        }
-    }
-
-    chunk.features = new_features;
-    chunk.labels = new_labels;
-    chunk.events = new_events;
-    chunk.n_rows = new_n;
-
-    Ok(chunk)
+/// Imbalance filter config for streaming row-level filtering.
+struct ImbalanceFilter {
+    ofi_threshold: f32,
+    target_geometry: Option<(i32, i32)>,
 }
 
 /// Internal loader. If `subsample` is Some((threshold, seed)), only include
-/// eval points whose hash falls below threshold.
+/// eval points whose hash falls below threshold. If `imbalance` is Some,
+/// only include rows where |ofi_fast| > threshold and geometry matches.
 fn load_day_impl(
     path: &Path,
     subsample: Option<(u32, u64)>,
+    imbalance: Option<ImbalanceFilter>,
 ) -> Result<DayChunk> {
     let date = parse_event_date_stem(
         path.file_stem().and_then(|s| s.to_str()).unwrap_or(""),
@@ -287,6 +264,19 @@ fn load_day_impl(
 
             let target_ticks = target_col.value(row_idx);
             let stop_ticks = stop_col.value(row_idx);
+
+            // Imbalance filter: skip rows that don't pass OFI threshold / geometry
+            if let Some(ref filt) = imbalance {
+                let ofi = ofi_fast_col_opt.map_or(0.0, |c| c.value(row_idx));
+                if ofi.abs() <= filt.ofi_threshold {
+                    continue;
+                }
+                if let Some((t, s)) = filt.target_geometry {
+                    if target_ticks != t || stop_ticks != s {
+                        continue;
+                    }
+                }
+            }
 
             // Append 90 features: 42 LOB + 46 flow + target_ticks + stop_ticks
             for arr in &feature_arrays {
