@@ -52,6 +52,9 @@ pub enum PipelineCommand {
     Event(OrderEvent),
     /// Signal the pipeline to clear the book builder (before snapshot rebuild).
     ClearBook,
+    /// Signal that snapshot loading is complete (after 161).
+    /// The pipeline should re-enable BBO validation after receiving this.
+    SnapshotComplete,
 }
 
 /// Internal state of the dispatcher.
@@ -88,7 +91,14 @@ pub async fn run_dispatcher(
     let mut order_id_map = OrderIdMap::new();
     let mut last_sequence: Option<u64> = None;
     let mut state = DispatcherState::Streaming;
+    let mut snapshot_active = false; // tracks initial DBO snapshot (116→161 sequence)
+    let mut dbo_streak: u64 = 0; // consecutive DBO messages without gap; must reach MIN before gap detection
     let epoch = Instant::now();
+
+    /// Minimum consecutive DBO messages before gap detection activates.
+    /// DBO sequences are global (all symbols), so small gaps between
+    /// per-symbol messages are normal during subscription warmup.
+    const GAP_DETECTION_MIN_STREAK: u64 = 50;
 
     while let Some(raw_data) = raw_msg_rx.recv().await {
         counters.inc_received();
@@ -135,44 +145,51 @@ pub async fn run_dispatcher(
 
                 match &mut state {
                     DispatcherState::Streaming => {
-                        // Sequence gap detection
+                        // Sequence gap detection (only after warmup streak)
                         if let Some(seq) = dbo.sequence_number {
                             if let Some(last) = last_sequence {
                                 if seq != last + 1 {
-                                    counters.inc_sequence_gaps();
-                                    eprintln!(
-                                        "[dispatcher] sequence gap: expected {}, got {} — initiating recovery",
-                                        last + 1, seq
-                                    );
+                                    if dbo_streak >= GAP_DETECTION_MIN_STREAK {
+                                        counters.inc_sequence_gaps();
+                                        eprintln!(
+                                            "[dispatcher] sequence gap: expected {}, got {} — initiating recovery",
+                                            last + 1, seq
+                                        );
 
-                                    // Transition to Recovering state
-                                    let mut buffer = VecDeque::new();
-                                    buffer.push_back((dbo, seq));
-                                    state = DispatcherState::Recovering {
-                                        buffer,
-                                        buffer_overflowed: false,
-                                    };
+                                        // Transition to Recovering state
+                                        let mut buffer = VecDeque::new();
+                                        buffer.push_back((dbo, seq));
+                                        state = DispatcherState::Recovering {
+                                            buffer,
+                                            buffer_overflowed: false,
+                                        };
 
-                                    // Signal pipeline to clear book before snapshot rebuild
-                                    if order_event_tx.send(PipelineCommand::ClearBook).await.is_err() {
-                                        return Err(RithmicError::Channel(
-                                            "order_event_tx closed during recovery".into(),
-                                        ));
-                                    }
-
-                                    // Send RequestDepthByOrderSnapshot via ws_cmd_tx
-                                    let snap_req = subscription::request_dbo_snapshot(&symbol, &exchange);
-                                    let encoded = encode_ws_message(&snap_req);
-                                    if let tokio_tungstenite::tungstenite::protocol::Message::Binary(data) = encoded {
-                                        if ws_cmd_tx.send(data.to_vec()).await.is_err() {
+                                        // Signal pipeline to clear book before snapshot rebuild
+                                        if order_event_tx.send(PipelineCommand::ClearBook).await.is_err() {
                                             return Err(RithmicError::Channel(
-                                                "ws_cmd_tx closed during recovery".into(),
+                                                "order_event_tx closed during recovery".into(),
                                             ));
                                         }
-                                    }
 
-                                    eprintln!("[dispatcher] ClearBook sent, snapshot request sent, buffering DBO messages");
-                                    continue;
+                                        // Send RequestDepthByOrderSnapshot via ws_cmd_tx
+                                        let snap_req = subscription::request_dbo_snapshot(&symbol, &exchange);
+                                        let encoded = encode_ws_message(&snap_req);
+                                        if let tokio_tungstenite::tungstenite::protocol::Message::Binary(data) = encoded {
+                                            if ws_cmd_tx.send(data.to_vec()).await.is_err() {
+                                                return Err(RithmicError::Channel(
+                                                    "ws_cmd_tx closed during recovery".into(),
+                                                ));
+                                            }
+                                        }
+
+                                        eprintln!("[dispatcher] ClearBook sent, snapshot request sent, buffering DBO messages");
+                                        dbo_streak = 0;
+                                        continue;
+                                    }
+                                    // Below warmup threshold — log but don't recover
+                                    dbo_streak = 0;
+                                } else {
+                                    dbo_streak += 1;
                                 }
                             }
                             last_sequence = Some(seq);
@@ -208,30 +225,38 @@ pub async fn run_dispatcher(
                 counters.inc_processed();
             }
 
-            // ResponseDepthByOrderSnapshot (116) — snapshot data during recovery
+            // ResponseDepthByOrderSnapshot (116) — snapshot data (initial or recovery)
             116 => {
                 let snap = match rti::ResponseDepthByOrderSnapshot::decode(payload) {
                     Ok(s) => s,
                     Err(_) => continue,
                 };
 
-                if let DispatcherState::Recovering { .. } = &state {
-                    // Track the sequence number from snapshot responses
-                    if let Some(seq) = snap.sequence_number {
-                        last_sequence = Some(seq);
-                    }
-
-                    // Convert snapshot entries to OrderEvents and send to pipeline
-                    // (pipeline should have already received ClearBook before the first snapshot response)
-                    let events = adapter::snapshot_response_to_events(&snap, instrument_id, &mut order_id_map);
-                    for event in events {
-                        if order_event_tx.send(PipelineCommand::Event(event)).await.is_err() {
-                            return Err(RithmicError::Channel("order_event_tx closed".into()));
+                // On the first 116 in a sequence while Streaming, send ClearBook
+                // so the pipeline resets the book before snapshot entries arrive.
+                if let DispatcherState::Streaming = &state {
+                    if !snapshot_active {
+                        snapshot_active = true;
+                        if order_event_tx.send(PipelineCommand::ClearBook).await.is_err() {
+                            return Err(RithmicError::Channel(
+                                "order_event_tx closed during initial snapshot".into(),
+                            ));
                         }
+                        eprintln!("[dispatcher] initial DBO snapshot started — ClearBook sent");
                     }
-                } else {
-                    // Unexpected snapshot response outside recovery — log and skip
-                    eprintln!("[dispatcher] unexpected snapshot response (116) outside recovery");
+                }
+
+                // Track the sequence number from snapshot responses
+                if let Some(seq) = snap.sequence_number {
+                    last_sequence = Some(seq);
+                }
+
+                // Convert snapshot entries to OrderEvents and send to pipeline
+                let events = adapter::snapshot_response_to_events(&snap, instrument_id, &mut order_id_map);
+                for event in events {
+                    if order_event_tx.send(PipelineCommand::Event(event)).await.is_err() {
+                        return Err(RithmicError::Channel("order_event_tx closed".into()));
+                    }
                 }
 
                 counters.inc_processed();
@@ -298,17 +323,35 @@ pub async fn run_dispatcher(
                         }
 
                         counters.inc_snapshot_recoveries();
+                        dbo_streak = 0; // reset streak after recovery
+
+                        // Signal pipeline that snapshot/recovery is complete
+                        if order_event_tx.send(PipelineCommand::SnapshotComplete).await.is_err() {
+                            return Err(RithmicError::Channel(
+                                "order_event_tx closed during recovery complete".into(),
+                            ));
+                        }
                         // state is already set to Streaming by std::mem::replace above
                     }
 
                     DispatcherState::Streaming => {
-                        // DepthByOrderEndEvent outside recovery — this happens during
-                        // initial subscription when the server sends an initial snapshot.
+                        // DepthByOrderEndEvent outside recovery — marks end of
+                        // initial subscription snapshot.
                         if let Some(seq) = end_event.sequence_number {
                             last_sequence = Some(seq);
                         }
+                        snapshot_active = false;
+                        dbo_streak = 0; // reset streak after initial snapshot
+
+                        // Signal pipeline that snapshot loading is done
+                        if order_event_tx.send(PipelineCommand::SnapshotComplete).await.is_err() {
+                            return Err(RithmicError::Channel(
+                                "order_event_tx closed during snapshot complete".into(),
+                            ));
+                        }
+
                         eprintln!(
-                            "[dispatcher] DBO end event (not in recovery): seq={:?}",
+                            "[dispatcher] initial snapshot complete: seq={:?}",
                             end_event.sequence_number
                         );
                     }
@@ -386,6 +429,32 @@ pub async fn run_dispatcher(
                 counters.inc_processed();
             }
 
+            // ResponseMarketDataUpdate (101) — subscription ack
+            101 => {
+                if let Ok(resp) = rti::ResponseMarketDataUpdate::decode(payload) {
+                    eprintln!(
+                        "[dispatcher] market data sub ack: rp_code={:?} user_msg={:?}",
+                        resp.rp_code, resp.user_msg
+                    );
+                }
+                counters.inc_processed();
+            }
+
+            // ResponseDepthByOrderUpdates (118) — DBO subscription ack
+            118 => {
+                if let Ok(resp) = rti::ResponseDepthByOrderUpdates::decode(payload) {
+                    eprintln!(
+                        "[dispatcher] DBO sub ack: rp_code={:?} user_msg={:?}",
+                        resp.rp_code, resp.user_msg
+                    );
+                }
+                // Reset sequence tracking — first DBO after subscription start
+                // will have a fresh sequence baseline.
+                last_sequence = None;
+                dbo_streak = 0;
+                counters.inc_processed();
+            }
+
             // ResponseHeartbeat (19)
             19 => {
                 // Liveness already recorded above
@@ -418,6 +487,7 @@ pub async fn run_dispatcher(
 
             // All other messages — skip
             _ => {
+                eprintln!("[dispatcher] unhandled template_id={}", tid);
                 counters.inc_processed();
             }
         }

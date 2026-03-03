@@ -53,12 +53,9 @@ pub async fn run_pipeline(
     let mut latest_bbo: Option<BboUpdate> = None;
     let mut last_snapshot_boundary: u64 = 0;
 
-    // Recovery gating: suppresses BBO validation after ClearBook until both
-    // (1) at least one incremental DBO batch has been processed AND
-    // (2) at least one fresh BBO has been received post-clear.
-    // This prevents false divergence from the tokio::select! race where BBO
-    // can arrive before the book has processed matching DBO updates.
-    let mut recovery_batches_since_clear: u32 = 0;
+    // Recovery gating: suppresses BBO validation after ClearBook until
+    // SnapshotComplete is received AND at least one fresh BBO arrives.
+    let mut snapshot_complete_received: bool = false;
     let mut recovery_bbo_received: bool = false;
     let mut in_recovery: bool = false;
 
@@ -71,6 +68,11 @@ pub async fn run_pipeline(
                         latest_bbo = Some(update);
                         if in_recovery {
                             recovery_bbo_received = true;
+                            // Re-enable if snapshot already completed
+                            if snapshot_complete_received {
+                                in_recovery = false;
+                                eprintln!("[pipeline] BBO validation re-enabled (snapshot complete + BBO received)");
+                            }
                         }
                     }
                     None => {
@@ -94,10 +96,20 @@ pub async fn run_pipeline(
                         book = BookBuilder::new(instrument_id);
                         last_snapshot_boundary = 0;
                         in_recovery = true;
-                        recovery_batches_since_clear = 0;
+                        snapshot_complete_received = false;
                         recovery_bbo_received = false;
                         // Don't reset bar_builder/feature_computer — they accumulate
                         // across the session and a brief gap shouldn't lose bar history.
+                    }
+
+                    PipelineCommand::SnapshotComplete => {
+                        snapshot_complete_received = true;
+                        // Re-enable validation only when snapshot is done AND
+                        // a fresh BBO has arrived post-clear.
+                        if in_recovery && recovery_bbo_received {
+                            in_recovery = false;
+                            eprintln!("[pipeline] BBO validation re-enabled (snapshot complete + BBO received)");
+                        }
                     }
 
                     PipelineCommand::Event(event) => {
@@ -118,22 +130,10 @@ pub async fn run_pipeline(
 
                         // On batch boundary: validate BBO + emit snapshots
                         if is_batch_end {
-                            if in_recovery {
-                                recovery_batches_since_clear += 1;
-                                // Re-enable only when both conditions met:
-                                // at least 1 batch processed AND at least 1 fresh BBO received.
-                                // Skip validation on the re-enable batch itself — the next
-                                // batch-end will be the first real validation.
-                                if recovery_batches_since_clear >= 1 && recovery_bbo_received {
-                                    in_recovery = false;
-                                    eprintln!(
-                                        "[pipeline] BBO validation re-enabled \
-                                         (batches={}, bbo_received=true)",
-                                        recovery_batches_since_clear
-                                    );
+                            if !in_recovery {
+                                if let Some(ref bbo) = latest_bbo {
+                                    validate_bbo(&book, bbo, &counters, dev_mode);
                                 }
-                            } else if let Some(ref bbo) = latest_bbo {
-                                validate_bbo(&book, bbo, &counters, dev_mode);
                             }
 
                             // Emit 100ms snapshots

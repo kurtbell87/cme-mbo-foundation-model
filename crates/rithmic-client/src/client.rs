@@ -60,7 +60,7 @@ impl RithmicClient {
             &self.config.password,
             &self.config.app_name,
             &self.config.app_version,
-            None, // use first available system
+            self.config.system_name.as_deref(),
             InfraType::TickerPlant,
         )
         .await?;
@@ -91,7 +91,15 @@ impl RithmicClient {
             .await
             .map_err(|e| RithmicError::WebSocket(format!("send DBO sub: {e}")))?;
 
-        eprintln!("[client] subscribed, starting pipeline...");
+        // Request initial DBO snapshot to populate the book before incrementals arrive.
+        // The server responds with 116 (ResponseDepthByOrderSnapshot) + 161 (end marker).
+        let snap = subscription::request_dbo_snapshot(&self.config.symbol, &self.config.exchange);
+        ws_sink
+            .send(encode_ws_message(&snap))
+            .await
+            .map_err(|e| RithmicError::WebSocket(format!("send DBO snapshot req: {e}")))?;
+
+        eprintln!("[client] subscribed + snapshot requested, starting pipeline...");
 
         // Create channels
         let (raw_msg_tx, raw_msg_rx) = mpsc::channel::<Vec<u8>>(RAW_MSG_BUF);

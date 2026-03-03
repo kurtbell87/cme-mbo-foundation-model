@@ -25,6 +25,9 @@ pub struct RithmicConfig {
     pub tick_size: f64,
     /// S3 bucket for raw message capture. None = disable S3 capture.
     pub s3_bucket: Option<String>,
+    /// Preferred Rithmic system name (e.g., "Rithmic Paper Trading").
+    /// If None, uses the first available system.
+    pub system_name: Option<String>,
     /// Dev mode: panic on BBO divergence instead of logging.
     pub dev_mode: bool,
 }
@@ -61,6 +64,7 @@ impl RithmicConfig {
             .parse()
             .map_err(|e| RithmicError::Config(format!("invalid RITHMIC_TICK_SIZE: {e}")))?;
         let s3_bucket = std::env::var("RITHMIC_S3_BUCKET").ok();
+        let system_name = std::env::var("RITHMIC_SYSTEM").ok();
         let dev_mode = std::env::var("RITHMIC_DEV_MODE")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
@@ -76,6 +80,7 @@ impl RithmicConfig {
             exchange,
             tick_size,
             s3_bucket,
+            system_name,
             dev_mode,
         })
     }

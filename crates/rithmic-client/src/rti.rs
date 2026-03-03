@@ -154,7 +154,7 @@ impl prost::Message for ResponseRithmicSystemInfo {
         if let Some(v) = self.template_id {
             encoding::int32::encode(TEMPLATE_ID_TAG, &v, buf);
         }
-        encode_optional_repeated_string(153629, &self.system_name, buf);
+        encode_optional_repeated_string(153628, &self.system_name, buf);
         encode_optional_repeated_string(132760, &self.user_msg, buf);
         encode_optional_repeated_string(132766, &self.rp_code, buf);
     }
@@ -173,7 +173,7 @@ impl prost::Message for ResponseRithmicSystemInfo {
                 self.template_id = Some(v);
                 Ok(())
             }
-            153629 => merge_optional_repeated_string(&mut self.system_name, wire_type, buf, ctx),
+            153628 => merge_optional_repeated_string(&mut self.system_name, wire_type, buf, ctx),
             132760 => merge_optional_repeated_string(&mut self.user_msg, wire_type, buf, ctx),
             132766 => merge_optional_repeated_string(&mut self.rp_code, wire_type, buf, ctx),
             _ => encoding::skip_field(wire_type, tag, buf, ctx),
@@ -185,7 +185,7 @@ impl prost::Message for ResponseRithmicSystemInfo {
         if let Some(v) = self.template_id {
             len += encoding::int32::encoded_len(TEMPLATE_ID_TAG, &v);
         }
-        len += encoded_len_optional_repeated_string(153629, &self.system_name);
+        len += encoded_len_optional_repeated_string(153628, &self.system_name);
         len += encoded_len_optional_repeated_string(132760, &self.user_msg);
         len += encoded_len_optional_repeated_string(132766, &self.rp_code);
         len
@@ -205,6 +205,8 @@ impl prost::Message for ResponseRithmicSystemInfo {
 pub struct RequestLogin {
     #[prost(int32, optional, tag = "154467")]
     pub template_id: Option<i32>,
+    #[prost(string, optional, tag = "153634")]
+    pub template_version: Option<String>,
     #[prost(string, optional, tag = "131003")]
     pub user: Option<String>,
     #[prost(string, optional, tag = "130004")]
@@ -230,6 +232,7 @@ impl RequestLogin {
     ) -> Self {
         Self {
             template_id: Some(10),
+            template_version: Some("3.9".to_string()),
             user: Some(user.to_string()),
             password: Some(password.to_string()),
             app_name: Some(app_name.to_string()),
@@ -247,7 +250,7 @@ pub struct ResponseLogin {
     pub template_id: Option<i32>,
     pub user_msg: Option<Vec<String>>,
     pub rp_code: Option<Vec<String>>,
-    pub heartbeat_interval: Option<i32>,
+    pub heartbeat_interval: Option<f64>,
     pub unique_user_id: Option<String>,
 }
 
@@ -259,7 +262,7 @@ impl prost::Message for ResponseLogin {
         encode_optional_repeated_string(132760, &self.user_msg, buf);
         encode_optional_repeated_string(132766, &self.rp_code, buf);
         if let Some(v) = self.heartbeat_interval {
-            encoding::int32::encode(153633, &v, buf);
+            encoding::double::encode(153633, &v, buf);
         }
         if let Some(ref v) = self.unique_user_id {
             encoding::string::encode(153428, v, buf);
@@ -284,7 +287,7 @@ impl prost::Message for ResponseLogin {
             132766 => merge_optional_repeated_string(&mut self.rp_code, wire_type, buf, ctx),
             153633 => {
                 let mut v = self.heartbeat_interval.unwrap_or_default();
-                encoding::int32::merge(wire_type, &mut v, buf, ctx)?;
+                encoding::double::merge(wire_type, &mut v, buf, ctx)?;
                 self.heartbeat_interval = Some(v);
                 Ok(())
             }
@@ -306,7 +309,7 @@ impl prost::Message for ResponseLogin {
         len += encoded_len_optional_repeated_string(132760, &self.user_msg);
         len += encoded_len_optional_repeated_string(132766, &self.rp_code);
         if let Some(v) = self.heartbeat_interval {
-            len += encoding::int32::encoded_len(153633, &v);
+            len += encoding::double::encoded_len(153633, &v);
         }
         if let Some(ref v) = self.unique_user_id {
             len += encoding::string::encoded_len(153428, v);
@@ -580,9 +583,9 @@ pub struct RequestMarketDataUpdate {
     pub symbol: Option<String>,
     #[prost(string, optional, tag = "110101")]
     pub exchange: Option<String>,
-    #[prost(int32, optional, tag = "110121")]
+    #[prost(int32, optional, tag = "100000")]
     pub request: Option<i32>,
-    #[prost(int32, optional, tag = "110122")]
+    #[prost(int32, optional, tag = "154211")]
     pub update_bits: Option<i32>,
 }
 
@@ -679,17 +682,17 @@ pub struct BestBidOffer {
     pub symbol: Option<String>,
     #[prost(string, optional, tag = "110101")]
     pub exchange: Option<String>,
-    #[prost(int32, optional, tag = "154571")]
+    #[prost(int32, optional, tag = "149138")]
     pub presence_bits: Option<i32>,
-    #[prost(int32, optional, tag = "154572")]
+    #[prost(int32, optional, tag = "154571")]
     pub clear_bits: Option<i32>,
-    #[prost(double, optional, tag = "100058")]
+    #[prost(double, optional, tag = "100022")]
     pub bid_price: Option<f64>,
-    #[prost(int32, optional, tag = "100059")]
+    #[prost(int32, optional, tag = "100030")]
     pub bid_size: Option<i32>,
-    #[prost(double, optional, tag = "100060")]
+    #[prost(double, optional, tag = "100025")]
     pub ask_price: Option<f64>,
-    #[prost(int32, optional, tag = "100061")]
+    #[prost(int32, optional, tag = "100031")]
     pub ask_size: Option<i32>,
     #[prost(int32, optional, tag = "150100")]
     pub ssboe: Option<i32>,
@@ -707,13 +710,13 @@ pub struct LastTrade {
     pub symbol: Option<String>,
     #[prost(string, optional, tag = "110101")]
     pub exchange: Option<String>,
-    #[prost(double, optional, tag = "100070")]
+    #[prost(double, optional, tag = "100006")]
     pub trade_price: Option<f64>,
-    #[prost(int32, optional, tag = "100071")]
+    #[prost(int32, optional, tag = "100178")]
     pub trade_size: Option<i32>,
-    #[prost(int32, optional, tag = "154906")]
+    #[prost(int32, optional, tag = "112003")]
     pub aggressor: Option<i32>,
-    #[prost(int64, optional, tag = "100072")]
+    #[prost(int64, optional, tag = "100032")]
     pub volume: Option<i64>,
     #[prost(int32, optional, tag = "150100")]
     pub ssboe: Option<i32>,
@@ -795,11 +798,11 @@ impl prost::Message for ResponseDepthByOrderSnapshot {
         if let Some(ref v) = self.exchange {
             encoding::string::encode(110101, v, buf);
         }
-        encode_optional_repeated_int32(154788, &self.update_type, buf);
-        encode_optional_repeated_int32(154789, &self.transaction_type, buf);
-        encode_optional_repeated_double(154791, &self.depth_price, buf);
-        encode_optional_repeated_int32(154792, &self.depth_size, buf);
-        encode_optional_repeated_string(154793, &self.exchange_order_id, buf);
+        encode_optional_repeated_int32(110121, &self.update_type, buf);
+        encode_optional_repeated_int32(153612, &self.transaction_type, buf);
+        encode_optional_repeated_double(154405, &self.depth_price, buf);
+        encode_optional_repeated_int32(154406, &self.depth_size, buf);
+        encode_optional_repeated_string(149238, &self.exchange_order_id, buf);
         if let Some(v) = self.sequence_number {
             encoding::uint64::encode(112002, &v, buf);
         }
@@ -839,13 +842,13 @@ impl prost::Message for ResponseDepthByOrderSnapshot {
                 self.exchange = Some(v);
                 Ok(())
             }
-            154788 => merge_optional_repeated_int32(&mut self.update_type, wire_type, buf, ctx),
-            154789 => {
+            110121 => merge_optional_repeated_int32(&mut self.update_type, wire_type, buf, ctx),
+            153612 => {
                 merge_optional_repeated_int32(&mut self.transaction_type, wire_type, buf, ctx)
             }
-            154791 => merge_optional_repeated_double(&mut self.depth_price, wire_type, buf, ctx),
-            154792 => merge_optional_repeated_int32(&mut self.depth_size, wire_type, buf, ctx),
-            154793 => {
+            154405 => merge_optional_repeated_double(&mut self.depth_price, wire_type, buf, ctx),
+            154406 => merge_optional_repeated_int32(&mut self.depth_size, wire_type, buf, ctx),
+            149238 => {
                 merge_optional_repeated_string(&mut self.exchange_order_id, wire_type, buf, ctx)
             }
             112002 => {
@@ -883,11 +886,11 @@ impl prost::Message for ResponseDepthByOrderSnapshot {
         if let Some(ref v) = self.exchange {
             len += encoding::string::encoded_len(110101, v);
         }
-        len += encoded_len_optional_repeated_int32(154788, &self.update_type);
-        len += encoded_len_optional_repeated_int32(154789, &self.transaction_type);
-        len += encoded_len_optional_repeated_double(154791, &self.depth_price);
-        len += encoded_len_optional_repeated_int32(154792, &self.depth_size);
-        len += encoded_len_optional_repeated_string(154793, &self.exchange_order_id);
+        len += encoded_len_optional_repeated_int32(110121, &self.update_type);
+        len += encoded_len_optional_repeated_int32(153612, &self.transaction_type);
+        len += encoded_len_optional_repeated_double(154405, &self.depth_price);
+        len += encoded_len_optional_repeated_int32(154406, &self.depth_size);
+        len += encoded_len_optional_repeated_string(149238, &self.exchange_order_id);
         if let Some(v) = self.sequence_number {
             len += encoding::uint64::encoded_len(112002, &v);
         }
@@ -917,7 +920,7 @@ pub struct RequestDepthByOrderUpdates {
     pub symbol: Option<String>,
     #[prost(string, optional, tag = "110101")]
     pub exchange: Option<String>,
-    #[prost(int32, optional, tag = "110121")]
+    #[prost(int32, optional, tag = "100000")]
     pub request: Option<i32>,
 }
 
@@ -1030,11 +1033,11 @@ impl prost::Message for DepthByOrder {
         if let Some(v) = self.sequence_number {
             encoding::uint64::encode(112002, &v, buf);
         }
-        encode_optional_repeated_int32(154788, &self.update_type, buf);
-        encode_optional_repeated_int32(154789, &self.transaction_type, buf);
-        encode_optional_repeated_double(154791, &self.depth_price, buf);
-        encode_optional_repeated_int32(154792, &self.depth_size, buf);
-        encode_optional_repeated_string(154793, &self.exchange_order_id, buf);
+        encode_optional_repeated_int32(110121, &self.update_type, buf);
+        encode_optional_repeated_int32(153612, &self.transaction_type, buf);
+        encode_optional_repeated_double(154405, &self.depth_price, buf);
+        encode_optional_repeated_int32(154406, &self.depth_size, buf);
+        encode_optional_repeated_string(149238, &self.exchange_order_id, buf);
         if let Some(v) = self.ssboe {
             encoding::int32::encode(150100, &v, buf);
         }
@@ -1084,13 +1087,13 @@ impl prost::Message for DepthByOrder {
                 self.sequence_number = Some(v);
                 Ok(())
             }
-            154788 => merge_optional_repeated_int32(&mut self.update_type, wire_type, buf, ctx),
-            154789 => {
+            110121 => merge_optional_repeated_int32(&mut self.update_type, wire_type, buf, ctx),
+            153612 => {
                 merge_optional_repeated_int32(&mut self.transaction_type, wire_type, buf, ctx)
             }
-            154791 => merge_optional_repeated_double(&mut self.depth_price, wire_type, buf, ctx),
-            154792 => merge_optional_repeated_int32(&mut self.depth_size, wire_type, buf, ctx),
-            154793 => {
+            154405 => merge_optional_repeated_double(&mut self.depth_price, wire_type, buf, ctx),
+            154406 => merge_optional_repeated_int32(&mut self.depth_size, wire_type, buf, ctx),
+            149238 => {
                 merge_optional_repeated_string(&mut self.exchange_order_id, wire_type, buf, ctx)
             }
             150100 => {
@@ -1141,11 +1144,11 @@ impl prost::Message for DepthByOrder {
         if let Some(v) = self.sequence_number {
             len += encoding::uint64::encoded_len(112002, &v);
         }
-        len += encoded_len_optional_repeated_int32(154788, &self.update_type);
-        len += encoded_len_optional_repeated_int32(154789, &self.transaction_type);
-        len += encoded_len_optional_repeated_double(154791, &self.depth_price);
-        len += encoded_len_optional_repeated_int32(154792, &self.depth_size);
-        len += encoded_len_optional_repeated_string(154793, &self.exchange_order_id);
+        len += encoded_len_optional_repeated_int32(110121, &self.update_type);
+        len += encoded_len_optional_repeated_int32(153612, &self.transaction_type);
+        len += encoded_len_optional_repeated_double(154405, &self.depth_price);
+        len += encoded_len_optional_repeated_int32(154406, &self.depth_size);
+        len += encoded_len_optional_repeated_string(149238, &self.exchange_order_id);
         if let Some(v) = self.ssboe {
             len += encoding::int32::encoded_len(150100, &v);
         }
