@@ -127,11 +127,12 @@ impl BarAccumulator {
 
             self.vwap_num += trade.price as f64 * trade.size as f64;
             self.vwap_den += trade.size as f64;
-
-            self.trade_event_count += 1;
         }
 
-        self.add_count += 1;
+        self.add_count += snap.add_count;
+        self.cancel_count += snap.cancel_count;
+        self.modify_count += snap.modify_count;
+        self.trade_event_count += snap.trade_count;
         self.mbo_event_end += 1;
         self.last_snap = snap.clone();
     }
@@ -196,9 +197,9 @@ impl BarAccumulator {
         Some(bar)
     }
 
-    /// Flush: finalize if active.
+    /// Flush: finalize if active and has accumulated snapshots.
     pub fn flush(&mut self) -> Option<Bar> {
-        if !self.active {
+        if !self.active || self.snapshot_count == 0 {
             return None;
         }
         self.finalize_bar()

@@ -1,0 +1,11 @@
+{
+    "mean": [1.0, -0.5, 0.0, 0.25, -1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.0],
+    "std":  [2.0,  0.5, 1.0, 0.10,  3.0, 1.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0],
+    "feature_names": [
+        "weighted_imbalance", "spread", "vwap_return", "volume_ratio",
+        "trade_intensity", "bid_depth", "ask_depth", "mid_volatility",
+        "order_flow", "price_momentum", "tick_direction", "cancel_rate",
+        "modify_rate", "book_pressure", "arrival_rate", "size_cluster",
+        "sweep_indicator", "queue_position", "fill_rate", "regime_indicator"
+    ]
+}

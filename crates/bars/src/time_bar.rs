@@ -39,10 +39,11 @@ impl BarBuilder for TimeBarBuilder {
         self.acc.update_bar(snap, &trade);
 
         if self.acc.snapshot_count as u64 >= self.snaps_per_bar {
-            let bar = self.acc.finalize_bar();
-            // Start next bar immediately for contiguity
-            self.acc.start_bar_contiguous(self.acc.close_mid);
-            return bar;
+            if let Some(mut bar) = self.acc.finalize_bar() {
+                bar.bar_duration_s =
+                    self.interval_ns as f32 / time_utils::NS_PER_SEC as f32;
+                return Some(bar);
+            }
         }
 
         None

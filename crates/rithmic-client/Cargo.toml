@@ -5,10 +5,15 @@ edition.workspace = true
 
 [dependencies]
 common = { workspace = true }
+book-builder = { workspace = true }
+bars = { workspace = true }
+features = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 thiserror = { workspace = true }
+native-tls = "0.2"
+futures-util = "0.3"
 
 [build-dependencies]
 prost-build = { workspace = true }

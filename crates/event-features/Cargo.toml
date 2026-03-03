@@ -1,0 +1,8 @@
+[package]
+name = "event-features"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+common = { workspace = true }
+book-builder = { workspace = true }

@@ -1,0 +1,23 @@
+[package]
+name = "parity-test"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "parity_test"
+path = "src/lib.rs"
+
+[[bin]]
+name = "parity-test"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+anyhow = { workspace = true }
+parquet = { workspace = true }
+arrow = { workspace = true }
+features = { workspace = true }
+bars = { workspace = true }
+common = { workspace = true }
+databento-ingest = { workspace = true }
+dbn = { workspace = true }
