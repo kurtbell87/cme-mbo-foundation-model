@@ -12,6 +12,20 @@ use xgboost_ffi::training::{Booster, DMatrix};
 
 use crate::data::{self, DayChunk, DayMeta, EventData};
 
+/// Force glibc to return freed memory to the OS (Linux only).
+/// Critical for sequential fold execution where training data must be
+/// fully released before loading test data.
+#[cfg(target_os = "linux")]
+fn force_return_memory() {
+    extern "C" {
+        fn malloc_trim(pad: usize) -> i32;
+    }
+    unsafe { malloc_trim(0); }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn force_return_memory() {}
+
 /// XGBoost hyperparameters for event-level model.
 pub struct XgbParams {
     pub max_depth: u32,
@@ -114,6 +128,7 @@ pub fn run_fold(
     seed: u64,
 ) -> Result<FoldResult> {
     // ── 1. Load training data (subsampled) ──────────────────────────────
+    eprintln!("  Loading {} train days ({}% subsample)...", split.train_day_indices.len(), subsample_pct);
     let mut train_chunks: Vec<DayChunk> = Vec::new();
     for &day_idx in &split.train_day_indices {
         let meta = &day_metas[day_idx];
@@ -135,6 +150,8 @@ pub fn run_fold(
         anyhow::bail!("No training rows after loading and filtering");
     }
 
+    eprintln!("  Train: {} rows, Val: {} rows", n_train, val_labels.len());
+
     // ── 2. Build DMatrices ──────────────────────────────────────────────
     let ncol = NUM_MODEL_INPUTS;
 
@@ -155,6 +172,7 @@ pub fn run_fold(
     };
 
     // ── 3. Train XGBoost ────────────────────────────────────────────────
+    eprintln!("  Training XGBoost (max {} rounds, eta={})...", params.n_rounds, params.eta);
     let val_labels_ref = if n_val > 0 { Some(val_labels.as_slice()) } else { None };
     let (booster, best_iter) = train_xgboost(
         &dtrain,
@@ -162,6 +180,8 @@ pub fn run_fold(
         val_labels_ref,
         params,
     )?;
+
+    eprintln!("  Training done: best_iter={}, freeing train memory...", best_iter + 1);
 
     // Drop training DMatrices to free memory before loading test data
     drop(dtrain);
@@ -173,7 +193,11 @@ pub fn run_fold(
     drop(train_chunks);
     drop(val_chunks);
 
+    // Force glibc to return freed pages to OS — prevents OOM when loading test data
+    force_return_memory();
+
     // ── 4. Load test data (full, no subsampling) ────────────────────────
+    eprintln!("  Loading {} test days (full)...", split.test_day_indices.len());
     let mut test_chunks: Vec<DayChunk> = Vec::new();
     for &day_idx in &split.test_day_indices {
         let meta = &day_metas[day_idx];
@@ -182,24 +206,37 @@ pub fn run_fold(
         test_chunks.push(chunk);
     }
 
-    let (test_features, _test_labels) = data::assemble_buffers(&test_chunks);
     let test_events = data::collect_events(&test_chunks);
+    let (test_features, _test_labels) = data::assemble_buffers(&test_chunks);
     let n_test = test_events.len();
+
+    // Drop chunks immediately — data is now in test_features and test_events
+    drop(_test_labels);
+    drop(test_chunks);
+    eprintln!("  Test: {} rows, features: {:.1} GB", n_test, (n_test * ncol * 4) as f64 / 1e9);
 
     if n_test == 0 {
         anyhow::bail!("No test rows after loading and filtering");
     }
 
     // ── 5. Predict on test set ──────────────────────────────────────────
+    eprintln!("  Building test DMatrix...");
     let dtest = DMatrix::from_dense(&test_features, n_test, ncol)
         .map_err(|e| anyhow::anyhow!("Failed to create test DMatrix: {}", e))?;
 
+    // Drop test_features — DMatrix has its own internal copy
+    drop(test_features);
+
+    eprintln!("  Predicting ({} trees)...", best_iter + 1);
     let predictions = booster
         .predict(&dtest, best_iter + 1)
         .map_err(|e| anyhow::anyhow!("Prediction failed: {}", e))?;
 
+    // Free DMatrix and booster before PnL computation
     drop(dtest);
-    drop(test_features);
+    drop(booster);
+    force_return_memory();
+    eprintln!("  Computing serial PnL...");
 
     // ── 6. Compute serial PnL ───────────────────────────────────────────
     let metrics = compute_serial_pnl(&predictions, &test_events, margin, commission);
@@ -285,11 +322,17 @@ fn train_xgboost(
                 best_loss = loss;
                 best_iter = i;
                 rounds_no_improve = 0;
+                eprintln!("  [round {}] val_logloss={:.6} (new best)", i + 1, loss);
             } else {
                 rounds_no_improve += EVAL_EVERY;
+                eprintln!(
+                    "  [round {}] val_logloss={:.6} (no improve {}/{})",
+                    i + 1, loss, rounds_no_improve, params.early_stopping
+                );
             }
 
             if rounds_no_improve >= params.early_stopping {
+                eprintln!("  Early stopping at round {} (best={})", i + 1, best_iter + 1);
                 break;
             }
         } else {
