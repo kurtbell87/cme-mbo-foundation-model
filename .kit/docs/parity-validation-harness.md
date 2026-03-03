@@ -1,5 +1,7 @@
 # TDD Spec: Numerical Parity Validation Harness
 
+> **DEPRECATED (2026-03-03):** C++ pipeline retired. Rust is now ground truth. `tools/parity-test/` remains in the repo as a historical artifact but should not be developed further.
+
 **Phase:** 0 (Critical Gate)
 **Crate:** `tools/parity-test/` (new binary crate)
 **Priority:** HIGHEST — nothing downstream is valid until this passes.
