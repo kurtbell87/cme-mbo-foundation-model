@@ -310,44 +310,55 @@ impl RithmicClient {
             }
         });
 
-        // Wait for any task to complete (or Ctrl+C)
-        tokio::select! {
+        // Wait for any task to complete (or Ctrl+C). Capture exit reason for the health log.
+        let (exit_reason, degraded) = tokio::select! {
             _ = ws_read_handle => {
                 eprintln!("[client] WebSocket read task ended");
+                ("ws_read_ended".to_string(), false)
             }
             _ = ws_write_handle => {
                 eprintln!("[client] write task ended");
+                ("ws_write_ended".to_string(), false)
             }
             r = dispatcher_handle => {
                 match r {
-                    Ok(Ok(())) => eprintln!("[client] dispatcher ended normally"),
-                    Ok(Err(e)) => eprintln!("[client] dispatcher error: {e}"),
-                    Err(e) => eprintln!("[client] dispatcher panicked: {e}"),
+                    Ok(Ok(())) => { eprintln!("[client] dispatcher ended normally"); ("dispatcher_ok".to_string(), false) }
+                    Ok(Err(e)) => { eprintln!("[client] dispatcher error: {e}"); (format!("dispatcher_err: {e}"), false) }
+                    Err(e) => { eprintln!("[client] dispatcher panicked: {e}"); (format!("dispatcher_panic: {e}"), false) }
                 }
             }
             r = pipeline_handle => {
                 match r {
-                    Ok(Ok(())) => eprintln!("[client] pipeline ended normally"),
-                    Ok(Err(e)) => eprintln!("[client] pipeline error: {e}"),
-                    Err(e) => eprintln!("[client] pipeline panicked: {e}"),
+                    Ok(Ok(())) => { eprintln!("[client] pipeline ended normally"); ("pipeline_ok".to_string(), false) }
+                    Ok(Err(crate::error::RithmicError::BookDegraded(ref msg))) => {
+                        eprintln!("[client] pipeline DEGRADED: {msg}");
+                        (format!("degraded: {msg}"), true)
+                    }
+                    Ok(Err(e)) => { eprintln!("[client] pipeline error: {e}"); (format!("pipeline_err: {e}"), false) }
+                    Err(e) => { eprintln!("[client] pipeline panicked: {e}"); (format!("pipeline_panic: {e}"), false) }
                 }
             }
             _ = recovery_handle => {
                 eprintln!("[client] recovery task ended");
+                ("recovery_ended".to_string(), false)
             }
             _ = output_handle => {
                 eprintln!("[client] output task ended");
+                ("output_ended".to_string(), false)
             }
             _ = tokio::signal::ctrl_c() => {
                 eprintln!("[client] Ctrl+C received, shutting down...");
+                ("ctrl_c".to_string(), false)
             }
-        }
+        };
 
         stats_handle.abort();
         let final_stats = counters.summary();
         eprintln!("[client] final stats: {final_stats}");
         let s = counters.snapshot();
         health.log("shutdown", serde_json::json!({
+            "exit_reason": exit_reason,
+            "degraded": degraded,
             "recv": s.received,
             "proc": s.processed,
             "dbo": s.dbo,
@@ -356,6 +367,7 @@ impl RithmicClient {
             "gaps": s.sequence_gaps,
             "validations": s.bbo_validations,
             "divergences": s.bbo_divergences,
+            "drops": s.capture_drops,
             "recoveries": s.snapshot_recoveries,
         }));
 
