@@ -1,5 +1,7 @@
 # TDD Spec: Bar Count Parity Fix
 
+> **DEPRECATED (2026-03-03):** C++ pipeline retired. Bar count parity with C++ is no longer a requirement. This spec is retained for historical context only.
+
 **Phase:** 0c (Parity Validation — Critical Gate)
 **Priority:** BLOCKER — parity validation cannot proceed until bar counts match exactly.
 

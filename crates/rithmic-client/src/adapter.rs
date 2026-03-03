@@ -50,8 +50,12 @@ pub struct BboUpdate {
     pub ts_ns: u64,
     pub bid_price: i64,
     pub bid_size: i32,
+    /// Implied/synthetic bid quantity from calendar spreads (0 = outright only).
+    pub bid_implicit_size: i32,
     pub ask_price: i64,
     pub ask_size: i32,
+    /// Implied/synthetic ask quantity from calendar spreads (0 = outright only).
+    pub ask_implicit_size: i32,
 }
 
 /// Maps exchange_order_id strings to monotonically assigned u64 IDs.
@@ -345,8 +349,10 @@ pub fn best_bid_offer_to_update(msg: &rti::BestBidOffer) -> Option<BboUpdate> {
         ts_ns,
         bid_price: price_to_fixed(bid_price),
         bid_size: msg.bid_size.unwrap_or(0),
+        bid_implicit_size: msg.bid_implicit_size.unwrap_or(0),
         ask_price: price_to_fixed(ask_price),
         ask_size: msg.ask_size.unwrap_or(0),
+        ask_implicit_size: msg.ask_implicit_size.unwrap_or(0),
     })
 }
 

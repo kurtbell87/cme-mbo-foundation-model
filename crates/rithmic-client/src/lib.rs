@@ -6,6 +6,7 @@ pub mod connection;
 pub mod counters;
 pub mod dispatcher;
 pub mod error;
+pub mod health_log;
 pub mod heartbeat;
 pub mod pipeline;
 pub mod rti;
