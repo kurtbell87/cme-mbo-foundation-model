@@ -121,6 +121,22 @@ impl MessageCounters {
         self.inner.snapshot_recoveries.load(Ordering::Relaxed)
     }
 
+    /// Take a point-in-time snapshot of all counters.
+    pub fn snapshot(&self) -> CountersSnapshot {
+        CountersSnapshot {
+            received: self.received(),
+            processed: self.processed(),
+            dbo: self.dbo(),
+            bbo: self.bbo(),
+            trade: self.trades(),
+            sequence_gaps: self.sequence_gaps(),
+            bbo_validations: self.bbo_validations(),
+            bbo_divergences: self.bbo_divergences(),
+            capture_drops: self.capture_drops(),
+            snapshot_recoveries: self.snapshot_recoveries(),
+        }
+    }
+
     /// Format a summary line for logging.
     pub fn summary(&self) -> String {
         format!(
@@ -137,6 +153,20 @@ impl MessageCounters {
             self.snapshot_recoveries(),
         )
     }
+}
+
+/// Point-in-time snapshot of all counters for JSON serialization.
+pub struct CountersSnapshot {
+    pub received: u64,
+    pub processed: u64,
+    pub dbo: u64,
+    pub bbo: u64,
+    pub trade: u64,
+    pub sequence_gaps: u64,
+    pub bbo_validations: u64,
+    pub bbo_divergences: u64,
+    pub capture_drops: u64,
+    pub snapshot_recoveries: u64,
 }
 
 impl Default for MessageCounters {

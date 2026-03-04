@@ -25,9 +25,14 @@ struct Args {
     #[arg(long, default_value = "0.25")]
     tick_size: f64,
 
-    /// Enable dev mode (panic on BBO divergence)
+    /// Enable dev mode (additional diagnostics)
     #[arg(long)]
     dev_mode: bool,
+
+    /// Path for the structured JSON Lines health log.
+    /// Defaults to rithmic-health-{SYMBOL}-{UNIX_SECS}.jsonl in the current directory.
+    #[arg(long)]
+    log_file: Option<String>,
 
     /// S3 bucket for raw message capture (optional)
     #[arg(long)]
@@ -45,7 +50,7 @@ async fn main() {
     // Load base config from env, override with CLI args
     let config = match RithmicConfig::from_env() {
         Ok(mut cfg) => {
-            cfg.symbol = args.symbol;
+            cfg.symbol = args.symbol.clone();
             cfg.exchange = args.exchange;
             cfg.tick_size = args.tick_size;
             cfg.dev_mode = args.dev_mode;
@@ -55,6 +60,14 @@ async fn main() {
             if args.cert_path.is_some() {
                 cfg.cert_path = args.cert_path;
             }
+            // Auto-generate log file path if not specified
+            cfg.log_file = args.log_file.unwrap_or_else(|| {
+                let secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                format!("rithmic-health-{}-{secs}.jsonl", args.symbol)
+            });
             cfg
         }
         Err(e) => {

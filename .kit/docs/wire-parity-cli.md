@@ -1,5 +1,7 @@
 # TDD Spec: Wire Parity-Test CLI
 
+> **DEPRECATED (2026-03-03):** C++ pipeline retired. This spec is retained for historical context only.
+
 **Phase:** 0d (Parity Validation — CLI Wiring)
 **Priority:** BLOCKER — the binary is a stub that prints "placeholder" and never exercises the pipeline.
 
