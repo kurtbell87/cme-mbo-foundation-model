@@ -13,7 +13,7 @@ pub mod statistics;
 
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -129,6 +129,11 @@ struct Args {
     /// Geometry filter for imbalance mode: "T:S" (e.g. "10:5")
     #[arg(long)]
     geometry: Option<String>,
+
+    /// Fold range for distributed execution: "START:END" (exclusive end).
+    /// E.g. "0:12" runs folds 0..12. When absent, runs all folds.
+    #[arg(long)]
+    fold_range: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -136,6 +141,7 @@ enum RunMode {
     Baseline,
     Cpcv,
     Imbalance,
+    Aggregate,
 }
 
 fn main() -> Result<()> {
@@ -145,6 +151,7 @@ fn main() -> Result<()> {
         RunMode::Baseline => run_baseline(&args),
         RunMode::Cpcv => run_cpcv(&args),
         RunMode::Imbalance => run_imbalance(&args),
+        RunMode::Aggregate => run_aggregate(&args),
     }
 }
 
@@ -446,9 +453,18 @@ fn run_imbalance(args: &Args) -> Result<()> {
         purge_bars: 0,
         embargo_bars: 0,
     };
-    let splits = generate_splits(&cpcv_day_metas, &cpcv_config);
+    let all_splits = generate_splits(&cpcv_day_metas, &cpcv_config);
 
-    eprintln!("  {} CPCV splits generated", splits.len());
+    eprintln!("  {} CPCV splits generated", all_splits.len());
+
+    // Optionally slice to a subset of folds for distributed execution
+    let splits = if let Some(ref range_str) = args.fold_range {
+        let (start, end) = parse_fold_range(range_str, all_splits.len())?;
+        eprintln!("  Fold range: {}..{} ({} of {} folds)", start, end, end - start, all_splits.len());
+        all_splits[start..end].to_vec()
+    } else {
+        all_splits
+    };
 
     // ── Phase 3: Run folds ──────────────────────────────────────────────
     eprintln!("\n[Phase 3] Running {} imbalance folds...", splits.len());
@@ -584,6 +600,40 @@ fn run_imbalance(args: &Args) -> Result<()> {
         bail!("All folds failed");
     }
 
+    // Write partial fold results (always, for distributed aggregation)
+    std::fs::create_dir_all(&args.output_dir).context("Failed to create output dir")?;
+    let partial_path = format!("{}/fold-results-partial.json", args.output_dir);
+    let partial_json = serde_json::to_string_pretty(&fold_results)
+        .context("Failed to serialize partial fold results")?;
+    std::fs::write(&partial_path, &partial_json)
+        .context("Failed to write partial fold results")?;
+    eprintln!("  Partial results written to {}", partial_path);
+
+    // If running a fold subset, skip aggregation — aggregate mode does that
+    if args.fold_range.is_some() {
+        let total_elapsed = total_start.elapsed();
+        eprintln!(
+            "\n  Total elapsed: {:.1} minutes",
+            total_elapsed.as_secs_f64() / 60.0
+        );
+        eprintln!("  Fold range complete. Use --mode aggregate to combine partial results.");
+
+        // Upload partial results to S3 if requested
+        if let Some(ref s3_path) = args.s3_output {
+            let s3_partial = format!("{}fold-results-partial.json", s3_path);
+            eprintln!("  Uploading partial results to {}...", s3_partial);
+            let status = std::process::Command::new("aws")
+                .args(["s3", "cp", &partial_path, &s3_partial])
+                .status()
+                .context("Failed to run aws s3 cp")?;
+            if !status.success() {
+                eprintln!("  WARNING: S3 upload failed (exit code {:?})", status.code());
+            }
+        }
+
+        return Ok(());
+    }
+
     // ── Phase 4: Aggregate and report ───────────────────────────────────
     eprintln!("\n[Phase 4] Aggregating results...");
 
@@ -604,6 +654,93 @@ fn run_imbalance(args: &Args) -> Result<()> {
     );
 
     // Write JSON output
+    let json_path = format!("{}/imbalance-cpcv-report.json", args.output_dir);
+    let json =
+        serde_json::to_string_pretty(&report).context("Failed to serialize report")?;
+    std::fs::write(&json_path, &json).context("Failed to write JSON report")?;
+    eprintln!("  Report written to {}", json_path);
+
+    // Upload to S3 if requested
+    if let Some(ref s3_path) = args.s3_output {
+        eprintln!("  Uploading to {}...", s3_path);
+        let status = std::process::Command::new("aws")
+            .args(["s3", "cp", &json_path, s3_path])
+            .status()
+            .context("Failed to run aws s3 cp")?;
+        if status.success() {
+            eprintln!("  Upload complete.");
+        } else {
+            eprintln!(
+                "  WARNING: S3 upload failed (exit code {:?})",
+                status.code()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Aggregate Mode (merge partial fold results from distributed runs)
+// ---------------------------------------------------------------------------
+
+fn run_aggregate(args: &Args) -> Result<()> {
+    eprintln!("event-backtest (aggregate mode)");
+    eprintln!("  data_dir:   {}", args.data_dir);
+    eprintln!("  output_dir: {}", args.output_dir);
+
+    // Glob for all fold-results-partial.json files under data_dir
+    let data_path = PathBuf::from(&args.data_dir);
+    let mut partial_files: Vec<PathBuf> = Vec::new();
+    find_partial_files(&data_path, &mut partial_files)?;
+    partial_files.sort();
+
+    if partial_files.is_empty() {
+        bail!(
+            "No fold-results-partial.json files found under {}",
+            args.data_dir
+        );
+    }
+
+    eprintln!("  Found {} partial result files:", partial_files.len());
+    for f in &partial_files {
+        eprintln!("    {}", f.display());
+    }
+
+    // Deserialize and concatenate all fold results
+    let mut all_fold_results: Vec<fold_runner::FoldResult> = Vec::new();
+    for path in &partial_files {
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read {:?}", path))?;
+        let results: Vec<fold_runner::FoldResult> = serde_json::from_str(&content)
+            .with_context(|| format!("Failed to parse {:?}", path))?;
+        eprintln!("    {} folds from {}", results.len(), path.display());
+        all_fold_results.extend(results);
+    }
+
+    eprintln!("  Total: {} folds", all_fold_results.len());
+
+    if all_fold_results.is_empty() {
+        bail!("No fold results found in partial files");
+    }
+
+    // Sort by split_idx for deterministic output
+    all_fold_results.sort_by_key(|r| r.split_idx);
+
+    // Aggregate using existing logic — n_days is not known from partials,
+    // so we infer from the fold results (train + test days per fold overlap,
+    // just use 0 and let the report show it).
+    let report = statistics::aggregate_results(
+        &all_fold_results,
+        0, // n_days not available in aggregate mode
+        0,
+        args.margin,
+        args.commission,
+    );
+
+    statistics::print_report(&report);
+
+    // Write combined report
     std::fs::create_dir_all(&args.output_dir).context("Failed to create output dir")?;
     let json_path = format!("{}/imbalance-cpcv-report.json", args.output_dir);
     let json =
@@ -629,6 +766,55 @@ fn run_imbalance(args: &Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Recursively find all `fold-results-partial.json` files under a directory.
+fn find_partial_files(dir: &Path, results: &mut Vec<PathBuf>) -> Result<()> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            find_partial_files(&path, results)?;
+        } else if path.file_name().and_then(|n| n.to_str()) == Some("fold-results-partial.json") {
+            results.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Parse a fold range string "START:END" into (start, end) with validation.
+fn parse_fold_range(range_str: &str, total_folds: usize) -> Result<(usize, usize)> {
+    let parts: Vec<&str> = range_str.split(':').collect();
+    if parts.len() != 2 {
+        bail!(
+            "Invalid --fold-range '{}', expected START:END (e.g. 0:12)",
+            range_str
+        );
+    }
+    let start: usize = parts[0]
+        .parse()
+        .context("Invalid start in --fold-range")?;
+    let end: usize = parts[1]
+        .parse()
+        .context("Invalid end in --fold-range")?;
+    if start >= end {
+        bail!(
+            "Invalid --fold-range '{}': start must be < end",
+            range_str
+        );
+    }
+    if end > total_folds {
+        bail!(
+            "Invalid --fold-range '{}': end ({}) exceeds total folds ({})",
+            range_str,
+            end,
+            total_folds
+        );
+    }
+    Ok((start, end))
 }
 
 // ---------------------------------------------------------------------------
