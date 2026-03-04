@@ -5,6 +5,7 @@
 //! No normalization (trees don't need it).
 
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 
 use backtest::CpcvSplit;
 use crate::data::NUM_FEATURES;
@@ -62,7 +63,7 @@ const EVAL_EVERY: u32 = 50;
 const TICK_VALUE: f64 = 1.25;
 
 /// Per-fold metrics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FoldMetrics {
     pub expectancy: f64,
     pub total_trades: i32,
@@ -75,7 +76,7 @@ pub struct FoldMetrics {
 }
 
 /// Per-geometry metrics for null hypothesis comparison.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeometryMetrics {
     pub target_ticks: i32,
     pub stop_ticks: i32,
@@ -87,14 +88,14 @@ pub struct GeometryMetrics {
 }
 
 /// Feature importance entry.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureImportance {
     pub name: String,
     pub gain: f64,
 }
 
 /// Result of running a single CPCV fold.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FoldResult {
     pub split_idx: usize,
     pub test_groups: Vec<usize>,
@@ -108,7 +109,7 @@ pub struct FoldResult {
 }
 
 /// A single calibration bin: predicted probability range vs actual hit rate.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CalibrationBin {
     pub bin_start: f64,
     pub bin_end: f64,
