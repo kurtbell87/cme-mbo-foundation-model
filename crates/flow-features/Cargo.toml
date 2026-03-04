@@ -1,0 +1,7 @@
+[package]
+name = "flow-features"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+book-builder = { workspace = true }

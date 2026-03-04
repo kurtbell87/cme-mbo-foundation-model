@@ -13,6 +13,7 @@ book-builder = { workspace = true }
 databento-ingest = { workspace = true }
 event-features = { workspace = true }
 event-labels = { workspace = true }
+flow-features = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 arrow = { workspace = true }
