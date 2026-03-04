@@ -7,7 +7,7 @@
 use anyhow::{Context, Result};
 
 use backtest::CpcvSplit;
-use event_features::NUM_MODEL_INPUTS;
+use crate::data::NUM_FEATURES;
 use xgboost_ffi::training::{Booster, DMatrix};
 
 use crate::data::{self, DayChunk, DayMeta, EventData};
@@ -140,36 +140,46 @@ pub fn run_fold(
     // Split last 20% of training days as validation
     let n_train_days = train_chunks.len();
     let val_start = n_train_days * 4 / 5;
-    let val_chunks: Vec<DayChunk> = train_chunks.split_off(val_start);
+    let mut val_chunks: Vec<DayChunk> = train_chunks.split_off(val_start);
 
-    let (train_features, train_labels) = data::assemble_buffers(&train_chunks);
-    let (val_features, val_labels) = data::assemble_buffers(&val_chunks);
+    // ── 2. Build DMatrices (memory-conscious) ───────────────────────────
+    // assemble_buffers drains chunks' features to avoid 3x memory amplification.
+    // Sequence: assemble → drop chunks → build DMatrix → drop flat buffer.
+    let ncol = NUM_FEATURES;
+
+    let (train_features, train_labels) = data::assemble_buffers(&mut train_chunks);
+    drop(train_chunks); // features already drained, free struct overhead
     let n_train = train_labels.len();
 
     if n_train == 0 {
         anyhow::bail!("No training rows after loading and filtering");
     }
 
-    eprintln!("  Train: {} rows, Val: {} rows", n_train, val_labels.len());
-
-    // ── 2. Build DMatrices ──────────────────────────────────────────────
-    let ncol = NUM_MODEL_INPUTS;
-
     let dtrain = DMatrix::from_dense(&train_features, n_train, ncol)
         .map_err(|e| anyhow::anyhow!("Failed to create train DMatrix: {}", e))?;
     dtrain.set_labels(&train_labels)
         .map_err(|e| anyhow::anyhow!("Failed to set train labels: {}", e))?;
+    drop(train_features); // DMatrix has its own internal copy
+    drop(train_labels);
+    force_return_memory();
 
+    let (val_features, val_labels) = data::assemble_buffers(&mut val_chunks);
+    drop(val_chunks);
     let n_val = val_labels.len();
+
     let dval = if n_val > 0 {
         let dv = DMatrix::from_dense(&val_features, n_val, ncol)
             .map_err(|e| anyhow::anyhow!("Failed to create val DMatrix: {}", e))?;
         dv.set_labels(&val_labels)
             .map_err(|e| anyhow::anyhow!("Failed to set val labels: {}", e))?;
+        drop(val_features);
         Some(dv)
     } else {
         None
     };
+    // val_labels kept alive for early stopping evaluation
+
+    eprintln!("  Train: {} rows, Val: {} rows", n_train, n_val);
 
     // ── 3. Train XGBoost ────────────────────────────────────────────────
     eprintln!("  Training XGBoost (max {} rounds, eta={})...", params.n_rounds, params.eta);
@@ -186,57 +196,51 @@ pub fn run_fold(
     // Drop training DMatrices to free memory before loading test data
     drop(dtrain);
     drop(dval);
-    drop(train_features);
-    drop(train_labels);
-    drop(val_features);
     drop(val_labels);
-    drop(train_chunks);
-    drop(val_chunks);
 
     // Force glibc to return freed pages to OS — prevents OOM when loading test data
     force_return_memory();
 
-    // ── 4. Load test data (full, no subsampling) ────────────────────────
-    eprintln!("  Loading {} test days (full)...", split.test_day_indices.len());
-    let mut test_chunks: Vec<DayChunk> = Vec::new();
+    // ── 4. Predict test data day-by-day (streaming, ~2 GB peak per day) ──
+    eprintln!("  Predicting {} test days (streaming, {} trees)...", split.test_day_indices.len(), best_iter + 1);
+    let mut predictions: Vec<f32> = Vec::new();
+    let mut test_events: Vec<EventData> = Vec::new();
+
     for &day_idx in &split.test_day_indices {
         let meta = &day_metas[day_idx];
-        let chunk = data::load_day_full(&meta.path)
+        let mut chunk = data::load_day_full(&meta.path)
             .with_context(|| format!("Failed to load test day {}", meta.date))?;
-        test_chunks.push(chunk);
+
+        if chunk.n_rows == 0 {
+            continue;
+        }
+
+        // Build per-day DMatrix, predict, free immediately
+        let n = chunk.n_rows;
+        let dday = DMatrix::from_dense(&chunk.features, n, ncol)
+            .map_err(|e| anyhow::anyhow!("Failed to create test DMatrix for day {}: {}", meta.date, e))?;
+        chunk.features.clear();
+        chunk.features.shrink_to_fit();
+
+        let day_preds = booster
+            .predict(&dday, best_iter + 1)
+            .map_err(|e| anyhow::anyhow!("Prediction failed for day {}: {}", meta.date, e))?;
+
+        predictions.extend_from_slice(&day_preds);
+        test_events.append(&mut chunk.events);
+        // dday + chunk dropped here
     }
 
-    let test_events = data::collect_events(&test_chunks);
-    let (test_features, _test_labels) = data::assemble_buffers(&test_chunks);
     let n_test = test_events.len();
 
-    // Drop chunks immediately — data is now in test_features and test_events
-    drop(_test_labels);
-    drop(test_chunks);
-    eprintln!("  Test: {} rows, features: {:.1} GB", n_test, (n_test * ncol * 4) as f64 / 1e9);
+    drop(booster);
+    force_return_memory();
 
     if n_test == 0 {
         anyhow::bail!("No test rows after loading and filtering");
     }
 
-    // ── 5. Predict on test set ──────────────────────────────────────────
-    eprintln!("  Building test DMatrix...");
-    let dtest = DMatrix::from_dense(&test_features, n_test, ncol)
-        .map_err(|e| anyhow::anyhow!("Failed to create test DMatrix: {}", e))?;
-
-    // Drop test_features — DMatrix has its own internal copy
-    drop(test_features);
-
-    eprintln!("  Predicting ({} trees)...", best_iter + 1);
-    let predictions = booster
-        .predict(&dtest, best_iter + 1)
-        .map_err(|e| anyhow::anyhow!("Prediction failed: {}", e))?;
-
-    // Free DMatrix and booster before PnL computation
-    drop(dtest);
-    drop(booster);
-    force_return_memory();
-    eprintln!("  Computing serial PnL...");
+    eprintln!("  Test: {} rows predicted, computing serial PnL...", n_test);
 
     // ── 6. Compute serial PnL ───────────────────────────────────────────
     let metrics = compute_serial_pnl(&predictions, &test_events, margin, commission);
@@ -248,6 +252,165 @@ pub fn run_fold(
     let calibration_bins = compute_calibration(&predictions, &test_events);
 
     // ── 9. Feature importance (placeholder — gain not available via C API) ──
+    let feature_importance = Vec::new();
+
+    Ok(FoldResult {
+        split_idx: split.split_idx,
+        test_groups: split.test_groups.clone(),
+        n_train,
+        n_test,
+        metrics,
+        geometry_metrics,
+        feature_importance,
+        best_iter,
+        calibration_bins,
+    })
+}
+
+/// Run a single CPCV fold on imbalance-filtered data.
+///
+/// Uses `load_day_imbalance()` instead of subsampled loading — the filtered
+/// dataset is small enough (~2-5M rows total) to fit entirely in memory.
+pub fn run_imbalance_fold(
+    split: &CpcvSplit,
+    day_metas: &[DayMeta],
+    params: &XgbParams,
+    margin: f64,
+    commission: f64,
+    ofi_threshold: f32,
+    target_geometry: Option<(i32, i32)>,
+) -> Result<FoldResult> {
+    // ── 1. Load training data (imbalance-filtered, no subsampling) ────
+    eprintln!(
+        "  Loading {} train days (imbalance, |ofi|>{})...",
+        split.train_day_indices.len(),
+        ofi_threshold
+    );
+    let mut train_chunks: Vec<DayChunk> = Vec::new();
+    for &day_idx in &split.train_day_indices {
+        let meta = &day_metas[day_idx];
+        let chunk = data::load_day_imbalance(&meta.path, ofi_threshold, target_geometry)
+            .with_context(|| format!("Failed to load train day {}", meta.date))?;
+        if chunk.n_rows > 0 {
+            train_chunks.push(chunk);
+        }
+    }
+
+    // Split last 20% of training days as validation
+    let n_train_days = train_chunks.len();
+    let val_start = n_train_days * 4 / 5;
+    let mut val_chunks: Vec<DayChunk> = train_chunks.split_off(val_start);
+
+    // ── 2. Build DMatrices ────────────────────────────────────────────
+    let ncol = NUM_FEATURES;
+
+    let (train_features, train_labels) = data::assemble_buffers(&mut train_chunks);
+    drop(train_chunks);
+    let n_train = train_labels.len();
+
+    if n_train == 0 {
+        anyhow::bail!("No training rows after imbalance filtering");
+    }
+
+    let dtrain = DMatrix::from_dense(&train_features, n_train, ncol)
+        .map_err(|e| anyhow::anyhow!("Failed to create train DMatrix: {}", e))?;
+    dtrain
+        .set_labels(&train_labels)
+        .map_err(|e| anyhow::anyhow!("Failed to set train labels: {}", e))?;
+    drop(train_features);
+    drop(train_labels);
+    force_return_memory();
+
+    let (val_features, val_labels) = data::assemble_buffers(&mut val_chunks);
+    drop(val_chunks);
+    let n_val = val_labels.len();
+
+    let dval = if n_val > 0 {
+        let dv = DMatrix::from_dense(&val_features, n_val, ncol)
+            .map_err(|e| anyhow::anyhow!("Failed to create val DMatrix: {}", e))?;
+        dv.set_labels(&val_labels)
+            .map_err(|e| anyhow::anyhow!("Failed to set val labels: {}", e))?;
+        drop(val_features);
+        Some(dv)
+    } else {
+        None
+    };
+
+    eprintln!("  Train: {} rows, Val: {} rows", n_train, n_val);
+
+    // ── 3. Train XGBoost ──────────────────────────────────────────────
+    eprintln!(
+        "  Training XGBoost (max {} rounds, eta={})...",
+        params.n_rounds, params.eta
+    );
+    let val_labels_ref = if n_val > 0 {
+        Some(val_labels.as_slice())
+    } else {
+        None
+    };
+    let (booster, best_iter) = train_xgboost(&dtrain, dval.as_ref(), val_labels_ref, params)?;
+
+    eprintln!(
+        "  Training done: best_iter={}, freeing train memory...",
+        best_iter + 1
+    );
+
+    drop(dtrain);
+    drop(dval);
+    drop(val_labels);
+    force_return_memory();
+
+    // ── 4. Predict test data day-by-day ───────────────────────────────
+    eprintln!(
+        "  Predicting {} test days (imbalance-filtered)...",
+        split.test_day_indices.len()
+    );
+    let mut predictions: Vec<f32> = Vec::new();
+    let mut test_events: Vec<EventData> = Vec::new();
+
+    for &day_idx in &split.test_day_indices {
+        let meta = &day_metas[day_idx];
+        let mut chunk = data::load_day_imbalance(&meta.path, ofi_threshold, target_geometry)
+            .with_context(|| format!("Failed to load test day {}", meta.date))?;
+
+        if chunk.n_rows == 0 {
+            continue;
+        }
+
+        let n = chunk.n_rows;
+        let dday = DMatrix::from_dense(&chunk.features, n, ncol)
+            .map_err(|e| {
+                anyhow::anyhow!("Failed to create test DMatrix for day {}: {}", meta.date, e)
+            })?;
+        chunk.features.clear();
+        chunk.features.shrink_to_fit();
+
+        let day_preds = booster
+            .predict(&dday, best_iter + 1)
+            .map_err(|e| anyhow::anyhow!("Prediction failed for day {}: {}", meta.date, e))?;
+
+        predictions.extend_from_slice(&day_preds);
+        test_events.append(&mut chunk.events);
+    }
+
+    let n_test = test_events.len();
+
+    drop(booster);
+    force_return_memory();
+
+    if n_test == 0 {
+        anyhow::bail!("No test rows after imbalance filtering");
+    }
+
+    eprintln!(
+        "  Test: {} rows predicted, computing serial PnL...",
+        n_test
+    );
+
+    // ── 5. Compute serial PnL + metrics ───────────────────────────────
+    let metrics = compute_serial_pnl(&predictions, &test_events, margin, commission);
+    let geometry_metrics = compute_geometry_metrics(&predictions, &test_events, margin, commission);
+    let calibration_bins = compute_calibration(&predictions, &test_events);
     let feature_importance = Vec::new();
 
     Ok(FoldResult {
@@ -611,6 +774,8 @@ mod tests {
                 outcome: 1, // target hit
                 exit_ts: 2000,
                 pnl_ticks: 10.0,
+                direction: 1,
+                ofi_fast: 3.0,
             },
             EventData {
                 timestamp_ns: 1500, // overlaps with first trade
@@ -619,6 +784,8 @@ mod tests {
                 outcome: 1,
                 exit_ts: 2500,
                 pnl_ticks: 10.0,
+                direction: 1,
+                ofi_fast: 2.5,
             },
             EventData {
                 timestamp_ns: 3000, // after first trade exits
@@ -627,6 +794,8 @@ mod tests {
                 outcome: 0, // stop hit
                 exit_ts: 4000,
                 pnl_ticks: -5.0,
+                direction: -1,
+                ofi_fast: -3.0,
             },
         ];
 
@@ -650,6 +819,8 @@ mod tests {
             outcome: if i % 3 == 0 { 1 } else { 0 },
             exit_ts: (i + 1) as u64,
             pnl_ticks: if i % 3 == 0 { 10.0 } else { -5.0 },
+            direction: 1,
+            ofi_fast: 0.0,
         }).collect();
 
         let predictions: Vec<f32> = (0..100).map(|i| i as f32 / 100.0).collect();

@@ -19,6 +19,7 @@ use event_features::{
     compute_lob_features, EventWindowConfig, LOB_FEATURE_NAMES, NUM_LOB_FEATURES,
 };
 use event_labels::{generate_multi_geometry_labels, DEFAULT_GEOMETRIES};
+use flow_features::{compute_flow_features, FLOW_FEATURE_NAMES, NUM_FLOW_FEATURES};
 
 /// Export event-level LOB features + barrier labels to Parquet.
 #[derive(Parser, Debug)]
@@ -60,6 +61,10 @@ struct Args {
     /// Export ALL committed states (not just BBO-change events)
     #[arg(long)]
     all_commits: bool,
+
+    /// Use OFI-directed bilateral labels: ofi_fast >= 0 → long@ask, ofi_fast < 0 → short@bid
+    #[arg(long)]
+    ofi_direction: bool,
 }
 
 fn parse_geometries(s: &str) -> Result<Vec<(i32, i32)>> {
@@ -92,10 +97,16 @@ fn build_schema() -> Schema {
         fields.push(Field::new(*name, DataType::Float32, false));
     }
 
+    // 46 flow feature columns
+    for name in &FLOW_FEATURE_NAMES {
+        fields.push(Field::new(*name, DataType::Float32, false));
+    }
+
     // Label columns
     fields.push(Field::new("outcome", DataType::Int8, false));
     fields.push(Field::new("exit_ts", DataType::UInt64, false));
     fields.push(Field::new("pnl_ticks", DataType::Float32, false));
+    fields.push(Field::new("direction", DataType::Int8, false));
 
     Schema::new(fields)
 }
@@ -125,6 +136,14 @@ fn main() -> Result<()> {
             "BBO-change only"
         }
     );
+    eprintln!(
+        "  ofi_direction: {}",
+        if args.ofi_direction {
+            "bilateral (ofi-directed)"
+        } else {
+            "long-only"
+        }
+    );
 
     // -----------------------------------------------------------------------
     // Step 1: Ingest .dbn.zst
@@ -134,12 +153,14 @@ fn main() -> Result<()> {
         .context("Failed to ingest .dbn.zst file")?;
 
     let committed = &ingest.committed_states;
+    let flow_states = &ingest.flow_states;
     let tick_mids = &ingest.tick_mids;
     let event_buf = &ingest.event_buffer;
 
     eprintln!(
-        "  {} committed states, {} tick mids, {} MBO events",
+        "  {} committed states, {} flow states, {} tick mids, {} MBO events",
         committed.len(),
+        flow_states.len(),
         tick_mids.len(),
         event_buf.len()
     );
@@ -193,9 +214,16 @@ fn main() -> Result<()> {
     let mut feature_cols: Vec<Vec<f32>> = (0..NUM_LOB_FEATURES)
         .map(|_| Vec::with_capacity(total_rows))
         .collect();
+    let mut flow_cols: Vec<Vec<f32>> = (0..NUM_FLOW_FEATURES)
+        .map(|_| Vec::with_capacity(total_rows))
+        .collect();
     let mut outcomes = Vec::with_capacity(total_rows);
     let mut exit_timestamps = Vec::with_capacity(total_rows);
     let mut pnl_ticks_col = Vec::with_capacity(total_rows);
+    let mut direction_col: Vec<i8> = Vec::with_capacity(total_rows);
+
+    // Index of ofi_fast in the flow feature array.
+    const OFI_FAST_IDX: usize = 21;
 
     // Build an index mapping committed state timestamps to event buffer positions.
     // Each committed state corresponds to the event at the same point in time.
@@ -214,15 +242,27 @@ fn main() -> Result<()> {
         // Compute LOB features once per evaluation point
         let features = compute_lob_features(state, recent_events, &cfg);
 
-        // Entry price: best ask for longs
-        let entry_price = state.asks[0][0] as f64;
+        // Compute flow features once per evaluation point
+        let flow_feats = compute_flow_features(&flow_states[eval_idx]);
+
+        // Determine direction and entry price
+        let (direction, entry_price) = if args.ofi_direction {
+            let ofi_fast = flow_feats[OFI_FAST_IDX];
+            if ofi_fast >= 0.0 {
+                (1.0_f64, state.asks[0][0] as f64) // long @ ask
+            } else {
+                (-1.0_f64, state.bids[0][0] as f64) // short @ bid
+            }
+        } else {
+            (1.0_f64, state.asks[0][0] as f64) // long-only (legacy)
+        };
 
         // Generate labels for all geometries
         let labels = generate_multi_geometry_labels(
             tick_mids,
             state.ts,
             entry_price,
-            1.0, // long only in Phase 1
+            direction,
             args.tick_size,
             max_horizon_ns,
             &geometries,
@@ -240,10 +280,14 @@ fn main() -> Result<()> {
             for (fi, &fv) in features.iter().enumerate() {
                 feature_cols[fi].push(fv);
             }
+            for (fi, &fv) in flow_feats.iter().enumerate() {
+                flow_cols[fi].push(fv);
+            }
 
             outcomes.push(outcome.outcome_code());
             exit_timestamps.push(outcome.exit_ts());
             pnl_ticks_col.push(outcome.ticks_pnl() as f32);
+            direction_col.push(if direction >= 0.0 { 1i8 } else { -1i8 });
         }
 
         if (progress_idx + 1) % 10000 == 0 {
@@ -283,10 +327,14 @@ fn main() -> Result<()> {
     for col in feature_cols {
         columns.push(Arc::new(Float32Array::from(col)));
     }
+    for col in flow_cols {
+        columns.push(Arc::new(Float32Array::from(col)));
+    }
 
     columns.push(Arc::new(Int8Array::from(outcomes)));
     columns.push(Arc::new(UInt64Array::from(exit_timestamps)));
     columns.push(Arc::new(Float32Array::from(pnl_ticks_col)));
+    columns.push(Arc::new(Int8Array::from(direction_col)));
 
     let batch = RecordBatch::try_new(schema.clone(), columns)
         .context("Failed to create RecordBatch")?;

@@ -121,12 +121,21 @@ struct Args {
     /// Random seed for subsampling reproducibility
     #[arg(long, default_value = "42")]
     seed: u64,
+
+    /// OFI threshold for imbalance mode: minimum |ofi_fast| to include a bar
+    #[arg(long, default_value = "2.0")]
+    ofi_threshold: f32,
+
+    /// Geometry filter for imbalance mode: "T:S" (e.g. "10:5")
+    #[arg(long)]
+    geometry: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum RunMode {
     Baseline,
     Cpcv,
+    Imbalance,
 }
 
 fn main() -> Result<()> {
@@ -135,6 +144,7 @@ fn main() -> Result<()> {
     match args.mode {
         RunMode::Baseline => run_baseline(&args),
         RunMode::Cpcv => run_cpcv(&args),
+        RunMode::Imbalance => run_imbalance(&args),
     }
 }
 
@@ -364,6 +374,257 @@ fn run_cpcv(args: &Args) -> Result<()> {
             eprintln!("  Upload complete.");
         } else {
             eprintln!("  WARNING: S3 upload failed (exit code {:?})", status.code());
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Imbalance Mode (OFI-filtered CPCV — small dataset)
+// ---------------------------------------------------------------------------
+
+fn run_imbalance(args: &Args) -> Result<()> {
+    let total_start = Instant::now();
+
+    let target_geometry = if let Some(ref g) = args.geometry {
+        let parts: Vec<&str> = g.split(':').collect();
+        if parts.len() != 2 {
+            bail!("Invalid --geometry format '{}', expected T:S (e.g. 10:5)", g);
+        }
+        let t: i32 = parts[0].parse().context("Invalid target ticks in --geometry")?;
+        let s: i32 = parts[1].parse().context("Invalid stop ticks in --geometry")?;
+        Some((t, s))
+    } else {
+        None
+    };
+
+    eprintln!("event-backtest (imbalance mode)");
+    eprintln!("  data_dir:        {}", args.data_dir);
+    eprintln!("  output_dir:      {}", args.output_dir);
+    eprintln!("  ofi_threshold:   {}", args.ofi_threshold);
+    eprintln!(
+        "  geometry:        {}",
+        target_geometry
+            .map(|(t, s)| format!("{}:{}", t, s))
+            .unwrap_or_else(|| "all".to_string())
+    );
+    eprintln!("  n_groups:        {}", args.n_groups);
+    eprintln!("  k_test:          {}", args.k_test);
+    eprintln!("  margin:          {}", args.margin);
+    eprintln!("  parallel_folds:  {}", args.parallel_folds);
+
+    // ── Phase 1: Scan day metadata ──────────────────────────────────────
+    eprintln!("\n[Phase 1] Scanning day metadata...");
+    let scan_start = Instant::now();
+
+    let day_metas = data::scan_day_metadata(&PathBuf::from(&args.data_dir))
+        .context("Failed to scan day metadata")?;
+
+    if day_metas.is_empty() {
+        bail!("No Parquet files found in {}", args.data_dir);
+    }
+
+    eprintln!(
+        "  {} days, {} total rows ({:.1}s)",
+        day_metas.len(),
+        data::total_rows(&day_metas),
+        scan_start.elapsed().as_secs_f64()
+    );
+
+    // ── Phase 2: Generate CPCV splits ───────────────────────────────────
+    eprintln!("\n[Phase 2] Generating CPCV splits...");
+
+    let n_days = day_metas.len();
+    let dates = data::dates(&day_metas);
+    let row_counts = data::row_counts(&day_metas);
+
+    let cpcv_day_metas = build_day_metas(&dates, &row_counts, args.n_groups);
+    let cpcv_config = CpcvConfig {
+        n_groups: args.n_groups,
+        k_test: args.k_test,
+        purge_bars: 0,
+        embargo_bars: 0,
+    };
+    let splits = generate_splits(&cpcv_day_metas, &cpcv_config);
+
+    eprintln!("  {} CPCV splits generated", splits.len());
+
+    // ── Phase 3: Run folds ──────────────────────────────────────────────
+    eprintln!("\n[Phase 3] Running {} imbalance folds...", splits.len());
+
+    let n_cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    let n_parallel = if args.parallel_folds > 0 {
+        args.parallel_folds
+    } else {
+        1
+    };
+    let nthread = (n_cpus / n_parallel).max(1) as i32;
+
+    let xgb_params = fold_runner::XgbParams {
+        max_depth: args.max_depth,
+        eta: args.eta,
+        min_child_weight: args.min_child_weight,
+        subsample: args.subsample,
+        colsample_bytree: args.colsample_bytree,
+        n_rounds: args.n_estimators,
+        early_stopping: args.early_stopping,
+        nthread,
+        max_bin: args.max_bin,
+    };
+
+    if n_parallel > 1 {
+        eprintln!("  {} parallel folds, {} threads/fold", n_parallel, nthread);
+    } else {
+        eprintln!("  Sequential, {} threads/fold", nthread);
+    }
+
+    let fold_results: Vec<fold_runner::FoldResult> = if n_parallel > 1 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(n_parallel)
+            .build_global()
+            .ok();
+
+        let completed = Mutex::new(0usize);
+        let n_folds = splits.len();
+
+        let results: Vec<Option<fold_runner::FoldResult>> = splits
+            .par_iter()
+            .map(|split| {
+                let fold_start = Instant::now();
+                match fold_runner::run_imbalance_fold(
+                    split,
+                    &day_metas,
+                    &xgb_params,
+                    args.margin,
+                    args.commission,
+                    args.ofi_threshold,
+                    target_geometry,
+                ) {
+                    Ok(result) => {
+                        let elapsed = fold_start.elapsed();
+                        let mut done = completed.lock().unwrap();
+                        *done += 1;
+                        eprintln!(
+                            "  [{}/{}] Groups {{{}}} — {} test rows, exp=${:.2}, trades={} ({:.0}s)",
+                            *done,
+                            n_folds,
+                            result
+                                .test_groups
+                                .iter()
+                                .map(|g| g.to_string())
+                                .collect::<Vec<_>>()
+                                .join(","),
+                            result.n_test,
+                            result.metrics.expectancy,
+                            result.metrics.total_trades,
+                            elapsed.as_secs_f64(),
+                        );
+                        Some(result)
+                    }
+                    Err(e) => {
+                        let mut done = completed.lock().unwrap();
+                        *done += 1;
+                        eprintln!("  [{}/{}] FAILED: {}", *done, n_folds, e);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        results.into_iter().flatten().collect()
+    } else {
+        let mut results = Vec::with_capacity(splits.len());
+        for split in &splits {
+            let fold_start = Instant::now();
+            match fold_runner::run_imbalance_fold(
+                split,
+                &day_metas,
+                &xgb_params,
+                args.margin,
+                args.commission,
+                args.ofi_threshold,
+                target_geometry,
+            ) {
+                Ok(result) => {
+                    let elapsed = fold_start.elapsed();
+                    eprintln!(
+                        "  [{}/{}] Groups {{{}}} — {} test rows, exp=${:.2}, trades={} ({:.0}s)",
+                        result.split_idx + 1,
+                        splits.len(),
+                        result
+                            .test_groups
+                            .iter()
+                            .map(|g| g.to_string())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        result.n_test,
+                        result.metrics.expectancy,
+                        result.metrics.total_trades,
+                        elapsed.as_secs_f64(),
+                    );
+                    results.push(result);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "  [{}/{}] FAILED: {}",
+                        split.split_idx + 1,
+                        splits.len(),
+                        e
+                    );
+                }
+            }
+        }
+        results
+    };
+
+    if fold_results.is_empty() {
+        bail!("All folds failed");
+    }
+
+    // ── Phase 4: Aggregate and report ───────────────────────────────────
+    eprintln!("\n[Phase 4] Aggregating results...");
+
+    let report = statistics::aggregate_results(
+        &fold_results,
+        n_days,
+        0, // no subsampling in imbalance mode
+        args.margin,
+        args.commission,
+    );
+
+    statistics::print_report(&report);
+
+    let total_elapsed = total_start.elapsed();
+    eprintln!(
+        "\n  Total elapsed: {:.1} minutes",
+        total_elapsed.as_secs_f64() / 60.0
+    );
+
+    // Write JSON output
+    std::fs::create_dir_all(&args.output_dir).context("Failed to create output dir")?;
+    let json_path = format!("{}/imbalance-cpcv-report.json", args.output_dir);
+    let json =
+        serde_json::to_string_pretty(&report).context("Failed to serialize report")?;
+    std::fs::write(&json_path, &json).context("Failed to write JSON report")?;
+    eprintln!("  Report written to {}", json_path);
+
+    // Upload to S3 if requested
+    if let Some(ref s3_path) = args.s3_output {
+        eprintln!("  Uploading to {}...", s3_path);
+        let status = std::process::Command::new("aws")
+            .args(["s3", "cp", &json_path, s3_path])
+            .status()
+            .context("Failed to run aws s3 cp")?;
+        if status.success() {
+            eprintln!("  Upload complete.");
+        } else {
+            eprintln!(
+                "  WARNING: S3 upload failed (exit code {:?})",
+                status.code()
+            );
         }
     }
 
