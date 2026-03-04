@@ -32,9 +32,6 @@ const BBO_BUF: usize = 1024;
 const RAW_CAPTURE_BUF: usize = 4096;
 const OUTPUT_BUF: usize = 256;
 const WS_CMD_BUF: usize = 64;
-/// Recovery signal channel: pipeline → client. Buffer=1; try_send drops
-/// redundant signals when a recovery is already in flight.
-const RECOVERY_BUF: usize = 1;
 
 /// The top-level Rithmic client.
 pub struct RithmicClient {
@@ -128,7 +125,6 @@ impl RithmicClient {
         let (bbo_tx, bbo_rx) = mpsc::channel(BBO_BUF);
         let (output_tx, mut output_rx) = mpsc::channel::<FeatureOutput>(OUTPUT_BUF);
         let (ws_cmd_tx, mut ws_cmd_rx) = mpsc::channel::<Vec<u8>>(WS_CMD_BUF);
-        let (recovery_tx, mut recovery_rx) = mpsc::channel::<()>(RECOVERY_BUF);
 
         // Optional S3 capture channel
         let raw_capture_tx: Option<mpsc::Sender<CaptureRecord>> = if self.config.s3_bucket.is_some()
@@ -222,8 +218,6 @@ impl RithmicClient {
         let instrument_id = 1u32; // /MES instrument ID
         let disp_symbol = self.config.symbol.clone();
         let disp_exchange = self.config.exchange.clone();
-        // Clone ws_cmd_tx before moving into dispatcher — recovery listener needs it too.
-        let recovery_ws_cmd_tx = ws_cmd_tx.clone();
         let dispatcher_handle = tokio::spawn(async move {
             dispatcher::run_dispatcher(
                 raw_msg_rx,
@@ -240,24 +234,6 @@ impl RithmicClient {
             .await
         });
 
-        // Spawn recovery listener: when pipeline signals a divergence, re-request snapshot.
-        let recovery_symbol = self.config.symbol.clone();
-        let recovery_exchange = self.config.exchange.clone();
-        let recovery_handle = tokio::spawn(async move {
-            while recovery_rx.recv().await.is_some() {
-                eprintln!("[recovery] divergence signal received — requesting fresh DBO snapshot");
-                let snap = subscription::request_dbo_snapshot(&recovery_symbol, &recovery_exchange);
-                let encoded = encode_ws_message(&snap);
-                if let tokio_tungstenite::tungstenite::protocol::Message::Binary(data) = encoded {
-                    if recovery_ws_cmd_tx.send(data.to_vec()).await.is_err() {
-                        eprintln!("[recovery] ws_cmd_tx closed, cannot request snapshot");
-                        break;
-                    }
-                }
-            }
-            eprintln!("[recovery] channel closed");
-        });
-
         // Spawn pipeline task
         let pipe_counters = counters.clone();
         let pipe_health = health.clone();
@@ -267,7 +243,6 @@ impl RithmicClient {
                 pipeline_cmd_rx,
                 bbo_rx,
                 output_tx,
-                recovery_tx,
                 pipe_health,
                 pipe_counters,
                 instrument_id,
@@ -330,17 +305,9 @@ impl RithmicClient {
             r = pipeline_handle => {
                 match r {
                     Ok(Ok(())) => { eprintln!("[client] pipeline ended normally"); ("pipeline_ok".to_string(), false) }
-                    Ok(Err(crate::error::RithmicError::BookDegraded(ref msg))) => {
-                        eprintln!("[client] pipeline DEGRADED: {msg}");
-                        (format!("degraded: {msg}"), true)
-                    }
                     Ok(Err(e)) => { eprintln!("[client] pipeline error: {e}"); (format!("pipeline_err: {e}"), false) }
                     Err(e) => { eprintln!("[client] pipeline panicked: {e}"); (format!("pipeline_panic: {e}"), false) }
                 }
-            }
-            _ = recovery_handle => {
-                eprintln!("[client] recovery task ended");
-                ("recovery_ended".to_string(), false)
             }
             _ = output_handle => {
                 eprintln!("[client] output task ended");
