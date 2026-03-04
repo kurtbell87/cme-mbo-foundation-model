@@ -1774,6 +1774,7 @@ dependencies = [
  "native-tls",
  "prost",
  "prost-build",
+ "serde_json",
  "thiserror",
  "tokio",
  "tokio-tungstenite",

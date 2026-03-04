@@ -50,8 +50,12 @@ pub struct BboUpdate {
     pub ts_ns: u64,
     pub bid_price: i64,
     pub bid_size: i32,
+    /// Implied/synthetic bid quantity from calendar spreads (0 = outright only).
+    pub bid_implicit_size: i32,
     pub ask_price: i64,
     pub ask_size: i32,
+    /// Implied/synthetic ask quantity from calendar spreads (0 = outright only).
+    pub ask_implicit_size: i32,
 }
 
 /// Maps exchange_order_id strings to monotonically assigned u64 IDs.
@@ -219,25 +223,38 @@ pub fn depth_by_order_to_events(
 
 /// Convert a ResponseDepthByOrderSnapshot (116) message into OrderEvents.
 ///
-/// All snapshot entries are action='A' (Add) — a snapshot represents the
-/// current state of the book, so every entry is an active order.
+/// Unlike incremental DBO (160) where all fields are parallel arrays,
+/// snapshot messages describe ONE price level per message:
+///   - `transaction_type` (depth_side) — single value: the side for this level
+///   - `depth_price` — single value: the price for this level
+///   - `depth_size` / `exchange_order_id` — repeated: one entry per order at this level
+///
+/// All snapshot entries are action='A' (Add) — they represent active orders.
 pub fn snapshot_response_to_events(
     msg: &rti::ResponseDepthByOrderSnapshot,
     instrument_id: u32,
     order_id_map: &mut OrderIdMap,
 ) -> Vec<OrderEvent> {
-    let update_types = msg.update_type.as_deref().unwrap_or(&[]);
-    let transaction_types = msg.transaction_type.as_deref().unwrap_or(&[]);
-    let prices = msg.depth_price.as_deref().unwrap_or(&[]);
     let sizes = msg.depth_size.as_deref().unwrap_or(&[]);
     let order_ids = msg.exchange_order_id.as_deref().unwrap_or(&[]);
 
-    // Use the longest repeated field to determine count, since snapshot
-    // messages may not populate update_type for every entry.
-    let count = prices.len().max(update_types.len()).max(order_ids.len());
+    // Count = number of orders at this price level
+    let count = order_ids.len().max(sizes.len());
     if count == 0 {
         return Vec::new();
     }
+
+    // Single price for the entire message (one level per message)
+    let price_f64 = msg.depth_price.as_deref().and_then(|v| v.first().copied()).unwrap_or(0.0);
+    let price = price_to_fixed(price_f64);
+
+    // Single side for the entire message
+    let tt = msg.transaction_type.as_deref().and_then(|v| v.first().copied()).unwrap_or(0);
+    let side = match tt {
+        TRANSACTION_TYPE_BUY => 'B',
+        TRANSACTION_TYPE_SELL => 'A',
+        _ => 'B', // default
+    };
 
     // Compute timestamp from gateway fields (snapshots typically don't have source_*)
     let ts_event = if let (Some(ss), Some(us)) = (msg.ssboe, msg.usecs) {
@@ -249,34 +266,9 @@ pub fn snapshot_response_to_events(
     let mut events = Vec::with_capacity(count);
 
     for i in 0..count {
-        let price_f64 = prices.get(i).copied().unwrap_or(0.0);
         let size = sizes.get(i).copied().unwrap_or(0) as u32;
-        let oid_str = order_ids
-            .get(i)
-            .map(|s| s.as_str())
-            .unwrap_or("");
-
-        // All snapshot entries are Add — they represent active orders
-        let action = 'A';
-
-        // Determine side from transaction_type if present, else from update_type
-        let tt = transaction_types.get(i).copied().unwrap_or(0);
-        let side = match tt {
-            TRANSACTION_TYPE_BUY => 'B',
-            TRANSACTION_TYPE_SELL => 'A',
-            _ => {
-                // Fallback: check update_type (some implementations use it for side in snapshots)
-                let ut = update_types.get(i).copied().unwrap_or(0);
-                match ut {
-                    TRANSACTION_TYPE_BUY => 'B',
-                    TRANSACTION_TYPE_SELL => 'A',
-                    _ => 'B', // default
-                }
-            }
-        };
-
+        let oid_str = order_ids.get(i).map(|s| s.as_str()).unwrap_or("");
         let order_id = order_id_map.get_or_assign(oid_str);
-        let price = price_to_fixed(price_f64);
 
         // Last event in batch gets F_LAST flag
         let flags = if i == count - 1 { 0x80 } else { 0 };
@@ -285,7 +277,7 @@ pub fn snapshot_response_to_events(
             ts_event,
             order_id,
             instrument_id,
-            action,
+            action: 'A', // snapshot entries are always Add
             side,
             price,
             size,
@@ -357,8 +349,10 @@ pub fn best_bid_offer_to_update(msg: &rti::BestBidOffer) -> Option<BboUpdate> {
         ts_ns,
         bid_price: price_to_fixed(bid_price),
         bid_size: msg.bid_size.unwrap_or(0),
+        bid_implicit_size: msg.bid_implicit_size.unwrap_or(0),
         ask_price: price_to_fixed(ask_price),
         ask_size: msg.ask_size.unwrap_or(0),
+        ask_implicit_size: msg.ask_implicit_size.unwrap_or(0),
     })
 }
 
