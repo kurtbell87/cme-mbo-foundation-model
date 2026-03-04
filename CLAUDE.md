@@ -120,11 +120,12 @@ After every session that changes the codebase, update:
 3. **`.kit/CONSTRUCTION_LOG.md`** — Progress notes (Math).
 4. **This file's "Current State" section** — Keep it current.
 
-## Current State (updated 2026-03-03)
+## Current State (updated 2026-03-04)
 
-- **Build:** GREEN — compiles clean, 0 warnings (`cargo build -p rithmic-live`)
+- **Build:** GREEN — compiles clean, 0 warnings
 - **Branch:** `feat/phase3-rithmic-live-pipeline` (merged main + flow features)
-- **Next action:** Live open-market test at 8:30am CT 2026-03-04 (see run command below)
+- **Rithmic:** Live open-market test at 8:30am CT 2026-03-04 (see run command below)
+- **Research/03:** Distributed imbalance CPCV implemented (`--fold-range`, `--mode aggregate`). First run on 4× c7a.8xlarge OOMed (94M rows/geometry exceeds 64 GB). Awaiting `--holdout-pct` (80/20 day-level split) + spot vCPU quota increase (128 → 512) to relaunch on 8× c7a.16xlarge.
 
 ### Live Test Run Command
 
