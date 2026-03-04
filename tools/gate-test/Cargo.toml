@@ -1,23 +1,17 @@
 [package]
-name = "event-backtest"
+name = "gate-test"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "event-backtest"
+name = "gate-test"
 path = "src/main.rs"
 
 [dependencies]
 common = { workspace = true }
-backtest = { workspace = true }
-event-features = { workspace = true }
-event-labels = { workspace = true }
-flow-features = { workspace = true }
-xgboost-ffi = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 arrow = { workspace = true }
 parquet = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-rayon = { workspace = true }
