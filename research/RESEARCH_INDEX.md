@@ -35,7 +35,7 @@
 ---
 
 ## Thread 03: Event-Level LOB Probability Model (Rust)
-**Status:** Active
+**Status:** Active — distributed CPCV implemented, awaiting relaunch
 **Period:** Mar 2026–
 **Hypothesis:** A single regression model predicting P(price hits +T before -S | LOB state) from event-level microstructure features, with entry at bid/ask and tick-level barrier simulation, can generate positive serial expectancy.
 
@@ -46,5 +46,25 @@
 - Multi-geometry training: 10 (T,S) pairs per evaluation point
 - Probability regression, not direction classification
 - Decision rule: trade when P_model > P_null + margin, where P_null = S/(T+S)
+
+**Bilateral Export (completed 2026-03-03):**
+- Run ID: `bilateral-export-20260303T173028Z-db687d7f`
+- 292 days, 897M total rows, 23 GB Parquet on S3
+- ~94M rows per geometry (10:5)
+
+**Distributed CPCV Tooling:**
+- `--fold-range START:END` for machine-level fold sharding (45 folds across N instances)
+- `--mode aggregate` merges partial results into cross-fold report
+- Distributed launch script: `scripts/ec2-launch-imbalance-cpcv-distributed.sh`
+
+**OFI Threshold Finding:**
+- `|ofi_fast| > 2.0` filters <3% of rows on 10:5 geometry (median = 36, p5 = 4.1)
+- OFI filtering is ineffective as a memory reduction strategy; use holdout or subsampling instead
+
+**Next Steps:**
+1. Implement `--holdout-pct` for 80/20 chronological day-level split
+2. Spot vCPU quota increase (128 → 512)
+3. Relaunch distributed imbalance CPCV on 8× c7a.16xlarge (~2-3 hours, ~$22)
+4. Run validation pipeline (DSR, expectancy CI, Ljung-Box, profit factor)
 
 **See:** `research/03-event-lob-probability/README.md`

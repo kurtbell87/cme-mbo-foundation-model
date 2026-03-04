@@ -19,7 +19,7 @@ set -euo pipefail
 # ── Parse args ────────────────────────────────────────────────
 OFI_THRESHOLD=2.0
 GEOMETRY="10:5"
-PARALLEL_FOLDS=4
+PARALLEL_FOLDS=2
 MARGIN=0.02
 DATA_PREFIX=""
 DRY_RUN=false
