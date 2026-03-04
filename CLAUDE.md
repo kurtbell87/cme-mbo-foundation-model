@@ -129,8 +129,7 @@ After every session that changes the codebase, update:
 ### Live Test Run Command
 
 ```bash
-cd /Users/brandonbell/LOCAL_DEV/mbo-dl-rust
-
+# Run from the worktree root (wherever you cd'd after git worktree add)
 LOG=~/logs/rithmic-health-$(date +%Y%m%d-%H%M).jsonl && mkdir -p ~/logs
 
 RITHMIC_URI=wss://rituz00100.rithmic.com:443 \
