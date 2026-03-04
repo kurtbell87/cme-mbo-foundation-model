@@ -1,5 +1,16 @@
 # Project Instructions — Orchestration-Kit (Greenfield)
 
+## MANDATORY: Work in a Worktree
+
+**All work MUST begin on a new git worktree.** Never commit directly to this branch or to main.
+
+```bash
+git worktree add .worktrees/<descriptive-name> -b <branch-name> HEAD
+cd .worktrees/<descriptive-name>
+```
+
+When done, push the branch and open a PR to merge back. This keeps the main working tree clean and avoids dirty-state conflicts between sessions.
+
 ## Path Convention
 
 Kit state files, working directories, and utility scripts live in `.kit/`. Project source code (`src/`, `tests/`, etc.) stays at the project root. The kit prompts reference bare filenames (e.g., `LAST_TOUCH.md`) — the `KIT_STATE_DIR` environment variable tells the scripts to resolve these inside `.kit/`.
@@ -112,13 +123,13 @@ After every session that changes the codebase, update:
 ## Current State (updated 2026-03-03)
 
 - **Build:** GREEN — compiles clean, 0 warnings (`cargo build -p rithmic-live`)
-- **Branch:** `main` (PR #5 merged 2026-03-03)
+- **Branch:** `feat/phase3-rithmic-live-pipeline` (merged main + flow features)
 - **Next action:** Live open-market test at 8:30am CT 2026-03-04 (see run command below)
 
 ### Live Test Run Command
 
 ```bash
-cd /Users/brandonbell/LOCAL_DEV/mbo-dl-rust/.worktrees/fix-161
+cd /Users/brandonbell/LOCAL_DEV/mbo-dl-rust
 
 LOG=~/logs/rithmic-health-$(date +%Y%m%d-%H%M).jsonl && mkdir -p ~/logs
 
