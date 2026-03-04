@@ -1,3 +1,5 @@
+pub mod flow;
+
 use common::book::{BookSnapshot, BOOK_DEPTH, SNAPSHOT_INTERVAL_NS, TRADE_BUF_LEN};
 use common::time_utils;
 
@@ -78,6 +80,10 @@ pub struct BookBuilder {
     // Previous BBO prices for bbo_changed detection (raw i64 fixed-point)
     prev_best_bid: Option<i64>,
     prev_best_ask: Option<i64>,
+
+    // Flow accumulators for microstructure dynamics
+    flow_accums: flow::FlowAccumulators,
+    flow_states: Vec<flow::FlowState>,
 }
 
 const F_LAST: u8 = 0x80;
@@ -137,6 +143,8 @@ impl BookBuilder {
             tick_mid_prices: Vec::new(),
             prev_best_bid: None,
             prev_best_ask: None,
+            flow_accums: flow::FlowAccumulators::with_defaults(),
+            flow_states: Vec::new(),
         }
     }
 
@@ -156,6 +164,13 @@ impl BookBuilder {
             return;
         }
 
+        // Feed event to flow accumulators BEFORE book update
+        self.flow_accums.on_event(ts_event, action, side, size);
+
+        // Snapshot BBO before the action
+        let pre_bid = self.bid_levels.keys().next_back().copied();
+        let pre_ask = self.ask_levels.keys().next().copied();
+
         match action {
             'A' => self.apply_add(order_id, side, price, size),
             'C' => self.apply_cancel(order_id),
@@ -164,6 +179,13 @@ impl BookBuilder {
             'F' => self.apply_fill(order_id, size),
             'R' => self.apply_clear(),
             _ => {}
+        }
+
+        // Check if this action changed the BBO
+        let post_bid = self.bid_levels.keys().next_back().copied();
+        let post_ask = self.ask_levels.keys().next().copied();
+        if post_bid != pre_bid || post_ask != pre_ask {
+            self.flow_accums.record_bbo_action(action, side);
         }
 
         if flags & F_LAST != 0 {
@@ -287,6 +309,12 @@ impl BookBuilder {
         std::mem::take(&mut self.committed_states)
     }
 
+    /// Take the flow state series (moves data out, leaving Vec empty).
+    /// Parallel to `take_committed_states()` — one FlowState per commit.
+    pub fn take_flow_states(&mut self) -> Vec<flow::FlowState> {
+        std::mem::take(&mut self.flow_states)
+    }
+
     // --- Private methods ---
 
     fn levels_for_mut(&mut self, side: char) -> &mut BTreeMap<i64, u32> {
@@ -393,6 +421,23 @@ impl BookBuilder {
         let bbo_changed = cur_best_bid != self.prev_best_bid || cur_best_ask != self.prev_best_ask;
         self.prev_best_bid = cur_best_bid;
         self.prev_best_ask = cur_best_ask;
+
+        // Snapshot flow accumulators at this commit point
+        let best_bid_size = cur_best_bid
+            .and_then(|p| self.bid_levels.get(&p).copied())
+            .unwrap_or(0);
+        let best_ask_size = cur_best_ask
+            .and_then(|p| self.ask_levels.get(&p).copied())
+            .unwrap_or(0);
+        let flow_state = self.flow_accums.snapshot(
+            ts,
+            bbo_changed,
+            cur_best_bid,
+            cur_best_ask,
+            best_bid_size,
+            best_ask_size,
+        );
+        self.flow_states.push(flow_state);
 
         self.committed_states.push(CommittedState {
             ts,
@@ -626,5 +671,79 @@ mod tests {
         assert!(states[0].bbo_changed);
         // After take, internal vec should be empty
         assert!(bb.committed_states.is_empty());
+    }
+
+    #[test]
+    fn test_flow_states_parallel_to_committed() {
+        let mut bb = make_builder();
+        // Two commits → should have 2 flow states
+        bb.process_event(1_000_000_000, 100, 1, 'A', 'B', 4500_000_000_000, 10, 0);
+        bb.process_event(1_000_000_000, 101, 1, 'A', 'A', 4501_000_000_000, 5, F_LAST);
+        bb.process_event(2_000_000_000, 102, 1, 'A', 'B', 4500_500_000_000, 8, F_LAST);
+
+        assert_eq!(bb.committed_states.len(), 2);
+        assert_eq!(bb.flow_states.len(), 2);
+        assert_eq!(bb.flow_states[0].ts, bb.committed_states[0].ts);
+        assert_eq!(bb.flow_states[1].ts, bb.committed_states[1].ts);
+    }
+
+    #[test]
+    fn test_flow_trade_through_process_event() {
+        let mut bb = make_builder();
+        // Set up a book
+        bb.process_event(1_000_000_000, 100, 1, 'A', 'B', 4500_000_000_000, 10, 0);
+        bb.process_event(1_000_000_000, 101, 1, 'A', 'A', 4501_000_000_000, 5, F_LAST);
+        // Buyer-initiated trade
+        bb.process_event(1_000_000_000, 0, 1, 'T', 'B', 4501_000_000_000, 3, F_LAST);
+
+        let flow = &bb.flow_states[1]; // second commit (after trade)
+        // Trade flow should be positive (buyer aggressor)
+        assert!(flow.trade_flow[0] > 0.0, "Expected positive trade flow, got {}", flow.trade_flow[0]);
+    }
+
+    #[test]
+    fn test_flow_bbo_cause_cancel_at_best() {
+        let mut bb = make_builder();
+        // Add bid at best
+        bb.process_event(1_000_000_000, 100, 1, 'A', 'B', 4500_000_000_000, 10, F_LAST);
+        // Cancel it → BBO changes, cause = Cancel
+        bb.process_event(2_000_000_000, 100, 1, 'C', 'B', 4500_000_000_000, 0, F_LAST);
+
+        let flow = &bb.flow_states[1];
+        assert_eq!(flow.bbo_change_cause, flow::BboChangeCause::Cancel);
+    }
+
+    #[test]
+    fn test_flow_bbo_cause_new_level() {
+        let mut bb = make_builder();
+        // Add bid
+        bb.process_event(1_000_000_000, 100, 1, 'A', 'B', 4500_000_000_000, 10, F_LAST);
+        // Add better bid → BBO changes, cause = NewLevel
+        bb.process_event(2_000_000_000, 101, 1, 'A', 'B', 4500_500_000_000, 5, F_LAST);
+
+        let flow = &bb.flow_states[1];
+        assert_eq!(flow.bbo_change_cause, flow::BboChangeCause::NewLevel);
+    }
+
+    #[test]
+    fn test_flow_bbo_cause_none_depth_behind() {
+        let mut bb = make_builder();
+        // Add bid at best
+        bb.process_event(1_000_000_000, 100, 1, 'A', 'B', 4500_000_000_000, 10, F_LAST);
+        // Add depth behind best → BBO unchanged
+        bb.process_event(2_000_000_000, 101, 1, 'A', 'B', 4499_000_000_000, 8, F_LAST);
+
+        let flow = &bb.flow_states[1];
+        assert_eq!(flow.bbo_change_cause, flow::BboChangeCause::None);
+    }
+
+    #[test]
+    fn test_take_flow_states() {
+        let mut bb = make_builder();
+        bb.process_event(1_000_000_000, 100, 1, 'A', 'B', 4500_000_000_000, 10, F_LAST);
+
+        let states = bb.take_flow_states();
+        assert_eq!(states.len(), 1);
+        assert!(bb.flow_states.is_empty());
     }
 }

@@ -752,6 +752,7 @@ dependencies = [
  "common",
  "event-features",
  "event-labels",
+ "flow-features",
  "parquet",
  "rayon",
  "serde",
@@ -771,6 +772,7 @@ dependencies = [
  "databento-ingest",
  "event-features",
  "event-labels",
+ "flow-features",
  "parquet",
 ]
 
@@ -841,6 +843,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "flow-features"
+version = "0.1.0"
+dependencies = [
+ "book-builder",
+]
+
+[[package]]
 name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -902,6 +911,19 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "gate-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "clap",
+ "common",
+ "parquet",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
