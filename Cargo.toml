@@ -19,6 +19,7 @@ members = [
     "crates/xgboost-ffi",
     "crates/event-features",
     "crates/event-labels",
+    "crates/flow-features",
     "tools/bar-feature-export",
     "tools/oracle-expectancy",
     "tools/subordination-test",
@@ -28,6 +29,7 @@ members = [
     "tools/rithmic-live",
     "tools/event-export",
     "tools/event-backtest",
+    "tools/gate-test",
 ]
 
 [workspace.package]
@@ -51,6 +53,7 @@ rithmic-client = { path = "crates/rithmic-client" }
 xgboost-ffi = { path = "crates/xgboost-ffi" }
 event-features = { path = "crates/event-features" }
 event-labels = { path = "crates/event-labels" }
+flow-features = { path = "crates/flow-features" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
