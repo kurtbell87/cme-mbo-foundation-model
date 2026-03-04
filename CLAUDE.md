@@ -111,20 +111,68 @@ After every session that changes the codebase, update:
 
 ## Current State (updated 2026-03-03)
 
-- **Build:** GREEN — compiles clean, 0 warnings
-- **Tests:** All pass, 0 failures
-- **Branch:** `fix/161-snapshot-complete`
+- **Build:** GREEN — compiles clean, 0 warnings (`cargo build -p rithmic-live`)
+- **Branch:** `main` (PR #5 merged 2026-03-03)
+- **Next action:** Live open-market test at 8:30am CT 2026-03-04 (see run command below)
+
+### Live Test Run Command
+
+```bash
+cd /Users/brandonbell/LOCAL_DEV/mbo-dl-rust/.worktrees/fix-161
+
+LOG=~/logs/rithmic-health-$(date +%Y%m%d-%H%M).jsonl && mkdir -p ~/logs
+
+RITHMIC_URI=wss://rituz00100.rithmic.com:443 \
+RITHMIC_USER=kurtbell87Paper@amp.com \
+RITHMIC_PASSWORD=Sim145615 \
+RITHMIC_CERT_PATH=/Users/brandonbell/Downloads/0.89.0.0/etc/rithmic_ssl_cert_auth_params \
+RITHMIC_SYSTEM="Rithmic Paper Trading" \
+~/.cargo/bin/cargo run --release --bin rithmic-live -- \
+  --symbol MESH6 --exchange CME --tick-size 0.25 --dev-mode \
+  --log-file "$LOG"
+```
+
+Run for at least 30 minutes through the open. Ctrl+C to stop. Log lands in `~/logs/`.
+
+### Pass/Fail Analysis (run after stopping)
+
+```bash
+python3 -c "
+import json, sys
+events = [json.loads(l) for l in open('$LOG')]
+sd = next((e for e in events if e['event'] == 'shutdown'), {})
+recoveries = sum(1 for e in events if e['event'] == 'recovery_triggered')
+skips = sum(1 for e in events if e['event'] == 'validation_skipped')
+validations = sd.get('validations', 0)
+gaps = sd.get('gaps', 0)
+degraded = sd.get('degraded', False)
+skip_pct = (skips / validations * 100) if validations > 0 else 0
+print(f'exit_reason : {sd.get(\"exit_reason\", \"unknown\")}')
+print(f'degraded    : {degraded}')
+print(f'recoveries  : {recoveries}  (pass = 0)')
+print(f'skipped     : {skips}  ({skip_pct:.1f}%)  (pass = <30%)')
+print(f'gaps        : {gaps}  (pass = 0)')
+print()
+print('PASS' if (recoveries == 0 and skip_pct < 30 and gaps == 0 and not degraded) else 'FAIL')
+"
+```
+
+### BBO Validation Design (Phase 3 — DONE)
+
+Two guards before triggering snapshot recovery:
+1. **Max-age:** skip if adjusted BBO age (raw − 150ms clock offset) > 400ms — stale BBO means book is MORE current
+2. **Directional-consistency:** trigger only after 5 consecutive same-direction fresh divergences
+
+On FAIL: `grep '"divergence"' $LOG | python3 -c "import json,sys; [print(json.loads(l)['ts_ms'], json.loads(l)['direction'], 'streak='+str(json.loads(l)['consecutive_consistent']), 'adj_age='+str(json.loads(l)['adjusted_age_ms'])+'ms') for l in sys.stdin]"`
 
 ### C++ Pipeline: RETIRED
 
-The C++ MBO-DL pipeline (`MBO-DL-02152026`) is **deprecated and will not be revisited.** The Rust pipeline is now the sole ground truth. Reasons:
-- The C++ model was trained on mid-price features, which are not tradeable
-- Rust pipeline is fully validated and production-ready
-- `tools/parity-test/` and `FEATURE_PARITY_SPEC.md` are historical artifacts — do not invest further effort in C++ parity
+The C++ MBO-DL pipeline is **deprecated and will not be revisited.** Rust pipeline is sole ground truth.
+`tools/parity-test/` and `FEATURE_PARITY_SPEC.md` are historical artifacts — do not invest further effort.
 
 ### Feature Design Direction
 
-Mid-price based features (`high_mid`, `low_mid`, `close_mid`, returns, volatility, HLR50, close_position) are **out**. Features must be grounded in tradeable prices:
+Mid-price features are **out**. All features grounded in tradeable prices:
 - Last **trade price** for close/open/returns
 - **Bid/ask** for position and range metrics
 - **VWAP**, spread, and order book imbalance remain valid
@@ -136,6 +184,6 @@ Mid-price based features (`high_mid`, `low_mid`, `close_mid`, returns, volatilit
 | 0–0c (Parity infrastructure) | DONE — retired with C++ |
 | 1 (XGBoost-ffi) | DONE |
 | 2 (Rithmic protobuf + msg-161) | DONE |
-| 3 (Rithmic WebSocket Client) | **NEXT** |
-| 4 (Streaming Live Pipeline) | Blocked on 3 |
-| 5 (Trading Engine) | Blocked on 3 |
+| 3 (Rithmic WebSocket Client) | **DONE** — live test pending 2026-03-04 open |
+| 4 (Streaming Live Pipeline) | **NEXT** after live test passes |
+| 5 (Trading Engine) | Blocked on 4 |
