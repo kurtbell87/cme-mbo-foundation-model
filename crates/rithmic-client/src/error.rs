@@ -41,6 +41,8 @@ pub enum RithmicError {
     TaskJoin(String),
     /// Book repeatedly diverged and failed to recover — pipeline exiting.
     BookDegraded(String),
+    /// Connection lost — retryable by the watchdog.
+    Disconnected(String),
 }
 
 impl fmt::Display for RithmicError {
@@ -71,6 +73,7 @@ impl fmt::Display for RithmicError {
             Self::Channel(msg) => write!(f, "channel error: {msg}"),
             Self::TaskJoin(msg) => write!(f, "task join error: {msg}"),
             Self::BookDegraded(msg) => write!(f, "book degraded: {msg}"),
+            Self::Disconnected(msg) => write!(f, "disconnected: {msg}"),
         }
     }
 }

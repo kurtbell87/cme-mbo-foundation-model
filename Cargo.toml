@@ -90,6 +90,19 @@ anyhow = "1"
 # Parallelism
 rayon = "1"
 
+# AWS
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1"
+
+# Compression
+flate2 = "1"
+
+# Encoding
+base64 = "0.22"
+
+# Time
+chrono = "0.4"
+
 # Testing
 tempfile = "3"
 
