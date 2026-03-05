@@ -47,13 +47,13 @@ pub struct FeatureOutput {
 /// docs). Recovery is triggered only on 5 consecutive same-direction fresh
 /// divergences. The pipeline exits with BookDegraded after 3 post-initial
 /// recoveries — each recovery takes ~1–5 seconds; 3 failures = structural problem.
-const MAX_POST_INITIAL_RECOVERIES: u32 = 3;
+const MAX_POST_INITIAL_RECOVERIES: u32 = 10;
 
 pub async fn run_pipeline(
     mut command_rx: mpsc::Receiver<PipelineCommand>,
     mut bbo_rx: mpsc::Receiver<BboUpdate>,
     output_tx: mpsc::Sender<FeatureOutput>,
-    recovery_tx: mpsc::Sender<()>,
+    _recovery_tx: mpsc::Sender<()>,
     health: HealthLogger,
     counters: MessageCounters,
     instrument_id: u32,
@@ -97,7 +97,10 @@ pub async fn run_pipeline(
     /// Skip validation if adjusted BBO age exceeds this (book is more current than BBO).
     const MAX_BBO_AGE_NS: u64 = 400_000_000; // 400ms
     /// Trigger recovery after this many consecutive same-direction fresh divergences.
-    const DIVERGENCE_RECOVERY_THRESHOLD: u32 = 5;
+    /// Currently unused — BBO-triggered recovery is disabled (see comment below).
+    /// Kept for re-enable with two-connection architecture.
+    #[allow(dead_code)]
+    const DIVERGENCE_RECOVERY_THRESHOLD: u32 = 20;
     /// Reset the consistency streak if no divergence seen within this window.
     const DIVERGENCE_RESET_WINDOW_NS: u64 = 5_000_000_000; // 5s
 
@@ -119,7 +122,8 @@ pub async fn run_pipeline(
                         }
                     }
                     None => {
-                        eprintln!("[pipeline] BBO channel closed");
+                        eprintln!("[pipeline] BBO channel closed, shutting down");
+                        return Ok(());
                     }
                 }
             }
@@ -287,28 +291,21 @@ pub async fn run_pipeline(
                                                 adjusted_age_ms, dir, consecutive_consistent
                                             );
 
-                                            if consecutive_consistent >= DIVERGENCE_RECOVERY_THRESHOLD {
-                                                health.log("recovery_triggered", serde_json::json!({
-                                                    "post_initial_recoveries": post_initial_recoveries + 1,
-                                                    "consecutive_consistent": consecutive_consistent,
-                                                    "direction": dir,
-                                                }));
-                                                eprintln!(
-                                                    "[pipeline] {} consecutive {} divergences \
-                                                     — triggering snapshot recovery",
-                                                    consecutive_consistent, dir
-                                                );
-                                                book = BookBuilder::new(instrument_id);
-                                                last_snapshot_boundary = 0;
-                                                in_recovery = true;
-                                                snapshot_complete_received = false;
-                                                recovery_bbo_received = false;
-                                                consecutive_consistent = 0;
-                                                last_divergence_dir = None;
-                                                // Signal client to re-request snapshot (best-effort;
-                                                // try_send drops if a signal is already pending).
-                                                let _ = recovery_tx.try_send(());
-                                            }
+                                            // BBO-triggered recovery is disabled. On a single
+                                            // socket, BBO frequently arrives before the DBO that
+                                            // caused the price change, creating persistent timing-
+                                            // race divergences (~48% rate) even with gaps=0.
+                                            // Recovery is handled by sequence gap detection in the
+                                            // dispatcher. BBO divergences are logged as diagnostics.
+                                            //
+                                            // To re-enable (e.g., with two-connection architecture):
+                                            // uncomment the block below and set threshold appropriately.
+                                            //
+                                            // if consecutive_consistent >= DIVERGENCE_RECOVERY_THRESHOLD
+                                            //     && dir == "book_behind"
+                                            // {
+                                            //     let _ = recovery_tx.try_send(());
+                                            // }
                                         } else {
                                             // Clean validation — reset consistency streak.
                                             consecutive_consistent = 0;

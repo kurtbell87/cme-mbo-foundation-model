@@ -138,7 +138,7 @@ RITHMIC_USER=kurtbell87Paper@amp.com \
 RITHMIC_PASSWORD=Sim145615 \
 RITHMIC_CERT_PATH=/Users/brandonbell/Downloads/0.89.0.0/etc/rithmic_ssl_cert_auth_params \
 RITHMIC_SYSTEM="Rithmic Paper Trading" \
-~/.cargo/bin/cargo run --release --bin rithmic-live -- \
+~/.cargo/bin/cargo run --release -p rithmic-live -- \
   --symbol MESH6 --exchange CME --tick-size 0.25 --dev-mode \
   --log-file "$LOG"
 ```
