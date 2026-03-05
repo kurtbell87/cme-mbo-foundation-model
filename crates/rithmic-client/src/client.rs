@@ -8,7 +8,7 @@
 //! 5. Monitoring task health via JoinHandles
 //! 6. Graceful shutdown on Ctrl+C
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
@@ -36,6 +36,13 @@ const WS_CMD_BUF: usize = 64;
 /// redundant signals when a recovery is already in flight.
 const RECOVERY_BUF: usize = 1;
 
+/// Structured result from a single `run()` session.
+pub struct RunResult {
+    pub exit_reason: String,
+    pub degraded: bool,
+    pub ran_duration: Duration,
+}
+
 /// The top-level Rithmic client.
 pub struct RithmicClient {
     config: RithmicConfig,
@@ -50,7 +57,8 @@ impl RithmicClient {
     ///
     /// This is the main entry point. It blocks until the pipeline shuts down
     /// (via error, forced logout, or Ctrl+C).
-    pub async fn run(&self) -> Result<(), RithmicError> {
+    pub async fn run(&self) -> Result<RunResult, RithmicError> {
+        let run_start = Instant::now();
         let counters = MessageCounters::new();
         let liveness = LivenessTracker::new();
 
@@ -63,7 +71,7 @@ impl RithmicClient {
                     .expect("/dev/null always openable")
             }
         };
-        health.log("startup", serde_json::json!({
+        health.log("session_start", serde_json::json!({
             "symbol": self.config.symbol,
             "exchange": self.config.exchange,
             "tick_size": self.config.tick_size,
@@ -131,21 +139,15 @@ impl RithmicClient {
         let (recovery_tx, mut recovery_rx) = mpsc::channel::<()>(RECOVERY_BUF);
 
         // Optional S3 capture channel
-        let raw_capture_tx: Option<mpsc::Sender<CaptureRecord>> = if self.config.s3_bucket.is_some()
+        let raw_capture_tx: Option<mpsc::Sender<CaptureRecord>> = if let Some(ref bucket) = self.config.s3_bucket
         {
-            let (tx, mut rx) = mpsc::channel::<CaptureRecord>(RAW_CAPTURE_BUF);
-            // Spawn a simple capture task that just counts (S3 upload deferred)
-            let cap_counters = counters.clone();
+            let (tx, rx) = mpsc::channel::<CaptureRecord>(RAW_CAPTURE_BUF);
+            let cap_bucket = bucket.clone();
+            let cap_symbol = self.config.symbol.clone();
             tokio::spawn(async move {
-                let mut count = 0u64;
-                while let Some(_record) = rx.recv().await {
-                    count += 1;
-                    if count % 10000 == 0 {
-                        eprintln!("[capture] {} records buffered (S3 upload not yet implemented)", count);
-                    }
+                if let Err(e) = crate::capture::run_capture_uploader(rx, cap_bucket, cap_symbol).await {
+                    eprintln!("[capture] uploader error: {e}");
                 }
-                eprintln!("[capture] channel closed after {} records", count);
-                let _ = cap_counters; // keep alive
             });
             Some(tx)
         } else {
@@ -353,12 +355,14 @@ impl RithmicClient {
         };
 
         stats_handle.abort();
+        let ran_duration = run_start.elapsed();
         let final_stats = counters.summary();
         eprintln!("[client] final stats: {final_stats}");
         let s = counters.snapshot();
-        health.log("shutdown", serde_json::json!({
+        health.log("session_end", serde_json::json!({
             "exit_reason": exit_reason,
             "degraded": degraded,
+            "ran_duration_s": ran_duration.as_secs(),
             "recv": s.received,
             "proc": s.processed,
             "dbo": s.dbo,
@@ -371,6 +375,20 @@ impl RithmicClient {
             "recoveries": s.snapshot_recoveries,
         }));
 
-        Ok(())
+        if degraded {
+            return Err(RithmicError::BookDegraded(exit_reason));
+        }
+
+        if exit_reason == "ctrl_c" {
+            return Ok(RunResult {
+                exit_reason,
+                degraded: false,
+                ran_duration,
+            });
+        }
+
+        // All other exits (ws_read_ended, ws_write_ended, dispatcher errors, etc.)
+        // are connection-level failures that the watchdog can retry.
+        Err(RithmicError::Disconnected(exit_reason))
     }
 }
