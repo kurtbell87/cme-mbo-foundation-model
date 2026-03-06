@@ -11,3 +11,7 @@ path = "src/main.rs"
 rithmic-client = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
+serde_json = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+chrono = { workspace = true }
