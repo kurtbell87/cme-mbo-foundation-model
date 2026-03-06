@@ -3,7 +3,7 @@
 //! All prices are converted to i64 fixed-point at 1e-9 scale at this boundary.
 //! No f64 prices leak past the adapter.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use crate::rti;
 
@@ -44,8 +44,6 @@ pub struct OrderEvent {
     pub size: u32,
     /// Flags. 0x80 = last event in batch.
     pub flags: u8,
-    /// Original exchange order ID for debugging.
-    pub source_order_id: String,
 }
 
 /// BBO update with i64 fixed-point prices.
@@ -70,16 +68,22 @@ pub struct BboUpdate {
 /// No removal on DELETE — a subsequent LastTrade (150) may reference
 /// the same exchange_order_id after a fill removes the order.
 /// At /MES message rates (~10-50k orders/day) this is bounded.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct OrderIdMap {
-    map: HashMap<String, u64>,
+    map: FxHashMap<String, u64>,
     next_id: u64,
+}
+
+impl Default for OrderIdMap {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OrderIdMap {
     pub fn new() -> Self {
         Self {
-            map: HashMap::new(),
+            map: FxHashMap::default(),
             next_id: 1, // start at 1, 0 reserved for trades without order_id
         }
     }
@@ -227,7 +231,6 @@ pub fn depth_by_order_to_events(
             price,
             size,
             flags,
-            source_order_id: oid_str.to_string(),
         });
     }
 
@@ -302,7 +305,6 @@ pub fn snapshot_response_to_events(
             price,
             size,
             flags,
-            source_order_id: oid_str.to_string(),
         });
     }
 
@@ -356,7 +358,6 @@ pub fn last_trade_to_event(
         price: price_to_fixed(price_f64),
         size,
         flags: 0x80, // trades are always their own batch
-        source_order_id: String::new(),
     })
 }
 

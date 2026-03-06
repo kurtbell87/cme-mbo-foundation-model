@@ -1,16 +1,16 @@
 pub mod flow;
 
-use std::collections::{BTreeMap, HashMap};
+use rustc_hash::FxHashMap;
 
 /// Number of price levels per side (bid/ask).
 pub const BOOK_DEPTH: usize = 10;
 
-/// Per-order tracking info.
+/// Per-order tracking info (16 bytes, no padding).
 #[derive(Debug, Clone)]
 struct OrderInfo {
-    side: char,
     price: i64,
     size: u32,
+    side: char,
 }
 
 /// Compact committed book state after an F_LAST event.
@@ -45,12 +45,12 @@ pub struct CommittedState {
 pub struct BookBuilder {
     instrument_id: u32,
 
-    // Per-order tracking: order_id -> {side, price, size}
-    orders: HashMap<u64, OrderInfo>,
+    // Per-order tracking: order_id -> {price, size, side}
+    orders: FxHashMap<u64, OrderInfo>,
 
-    // Aggregated price levels (price -> total size)
-    bid_levels: BTreeMap<i64, u32>, // ascending by price (last = best bid)
-    ask_levels: BTreeMap<i64, u32>, // ascending by price (first = best ask)
+    // Aggregated price levels: sorted ascending by price
+    bid_levels: Vec<(i64, u32)>, // last = best bid
+    ask_levels: Vec<(i64, u32)>, // first = best ask
 
     // Flow accumulators for microstructure dynamics
     flow_accums: flow::FlowAccumulators,
@@ -69,11 +69,34 @@ fn fixed_to_float(fixed: i64) -> f32 {
     (fixed as f64 / 1e9) as f32
 }
 
+fn level_add(levels: &mut Vec<(i64, u32)>, price: i64, size: u32) {
+    match levels.binary_search_by_key(&price, |(p, _)| *p) {
+        Ok(idx) => levels[idx].1 += size,
+        Err(idx) => levels.insert(idx, (price, size)),
+    }
+}
+
+fn level_sub(levels: &mut Vec<(i64, u32)>, price: i64, size: u32) {
+    if let Ok(idx) = levels.binary_search_by_key(&price, |(p, _)| *p) {
+        if levels[idx].1 <= size {
+            levels.remove(idx);
+        } else {
+            levels[idx].1 -= size;
+        }
+    }
+}
+
+fn level_get(levels: &[(i64, u32)], price: i64) -> Option<u32> {
+    levels.binary_search_by_key(&price, |(p, _)| *p)
+        .ok()
+        .map(|idx| levels[idx].1)
+}
+
 /// Snapshot the top BOOK_DEPTH bid levels into a fixed-size array (descending by price).
-fn snapshot_bids(levels: &BTreeMap<i64, u32>) -> ([[f32; 2]; BOOK_DEPTH], u8) {
+fn snapshot_bids(levels: &[(i64, u32)]) -> ([[f32; 2]; BOOK_DEPTH], u8) {
     let mut out = [[0.0f32; 2]; BOOK_DEPTH];
     let mut count = 0u8;
-    for (&price, &size) in levels.iter().rev() {
+    for &(price, size) in levels.iter().rev() {
         if (count as usize) >= BOOK_DEPTH {
             break;
         }
@@ -84,10 +107,10 @@ fn snapshot_bids(levels: &BTreeMap<i64, u32>) -> ([[f32; 2]; BOOK_DEPTH], u8) {
 }
 
 /// Snapshot the top BOOK_DEPTH ask levels into a fixed-size array (ascending by price).
-fn snapshot_asks(levels: &BTreeMap<i64, u32>) -> ([[f32; 2]; BOOK_DEPTH], u8) {
+fn snapshot_asks(levels: &[(i64, u32)]) -> ([[f32; 2]; BOOK_DEPTH], u8) {
     let mut out = [[0.0f32; 2]; BOOK_DEPTH];
     let mut count = 0u8;
-    for (&price, &size) in levels.iter() {
+    for &(price, size) in levels.iter() {
         if (count as usize) >= BOOK_DEPTH {
             break;
         }
@@ -98,11 +121,11 @@ fn snapshot_asks(levels: &BTreeMap<i64, u32>) -> ([[f32; 2]; BOOK_DEPTH], u8) {
 }
 
 fn compute_mid_spread_from_levels(
-    bids: &BTreeMap<i64, u32>,
-    asks: &BTreeMap<i64, u32>,
+    bids: &[(i64, u32)],
+    asks: &[(i64, u32)],
 ) -> (f32, f32) {
-    let best_bid = fixed_to_float(*bids.keys().next_back().unwrap());
-    let best_ask = fixed_to_float(*asks.keys().next().unwrap());
+    let best_bid = fixed_to_float(bids.last().unwrap().0);
+    let best_ask = fixed_to_float(asks.first().unwrap().0);
     ((best_bid + best_ask) / 2.0, best_ask - best_bid)
 }
 
@@ -110,9 +133,9 @@ impl BookBuilder {
     pub fn new(instrument_id: u32) -> Self {
         Self {
             instrument_id,
-            orders: HashMap::new(),
-            bid_levels: BTreeMap::new(),
-            ask_levels: BTreeMap::new(),
+            orders: FxHashMap::default(),
+            bid_levels: Vec::with_capacity(64),
+            ask_levels: Vec::with_capacity(64),
             flow_accums: flow::FlowAccumulators::with_defaults(),
             last_flow_state: None,
             prev_best_bid: None,
@@ -121,6 +144,7 @@ impl BookBuilder {
     }
 
     /// Process a single MBO event.
+    #[allow(clippy::too_many_arguments)]
     pub fn process_event(
         &mut self,
         ts_event: u64,
@@ -140,8 +164,8 @@ impl BookBuilder {
         self.flow_accums.on_event(ts_event, action, side, size);
 
         // Snapshot BBO before the action
-        let pre_bid = self.bid_levels.keys().next_back().copied();
-        let pre_ask = self.ask_levels.keys().next().copied();
+        let pre_bid = self.bid_levels.last().map(|(p, _)| *p);
+        let pre_ask = self.ask_levels.first().map(|(p, _)| *p);
 
         match action {
             'A' => self.apply_add(order_id, side, price, size),
@@ -154,8 +178,8 @@ impl BookBuilder {
         }
 
         // Check if this action changed the BBO
-        let post_bid = self.bid_levels.keys().next_back().copied();
-        let post_ask = self.ask_levels.keys().next().copied();
+        let post_bid = self.bid_levels.last().map(|(p, _)| *p);
+        let post_ask = self.ask_levels.first().map(|(p, _)| *p);
         if post_bid != pre_bid || post_ask != pre_ask {
             self.flow_accums.record_bbo_action(action, side);
         }
@@ -169,30 +193,22 @@ impl BookBuilder {
 
     /// Returns the best bid price as raw i64 fixed-point (1e-9 scale).
     pub fn best_bid_price(&self) -> Option<i64> {
-        self.bid_levels.keys().next_back().copied()
+        self.bid_levels.last().map(|(p, _)| *p)
     }
 
     /// Returns the best ask price as raw i64 fixed-point (1e-9 scale).
     pub fn best_ask_price(&self) -> Option<i64> {
-        self.ask_levels.keys().next().copied()
+        self.ask_levels.first().map(|(p, _)| *p)
     }
 
     /// Returns the best bid size (0 if no bids).
     pub fn best_bid_size(&self) -> u32 {
-        self.bid_levels
-            .iter()
-            .next_back()
-            .map(|(_, &s)| s)
-            .unwrap_or(0)
+        self.bid_levels.last().map(|(_, s)| *s).unwrap_or(0)
     }
 
     /// Returns the best ask size (0 if no asks).
     pub fn best_ask_size(&self) -> u32 {
-        self.ask_levels
-            .iter()
-            .next()
-            .map(|(_, &s)| s)
-            .unwrap_or(0)
+        self.ask_levels.first().map(|(_, s)| *s).unwrap_or(0)
     }
 
     /// Snapshot the current book state as a CommittedState.
@@ -206,8 +222,8 @@ impl BookBuilder {
         } else {
             (0.0, 0.0)
         };
-        let cur_best_bid = self.bid_levels.keys().next_back().copied();
-        let cur_best_ask = self.ask_levels.keys().next().copied();
+        let cur_best_bid = self.bid_levels.last().map(|(p, _)| *p);
+        let cur_best_ask = self.ask_levels.first().map(|(p, _)| *p);
         let bbo_changed = cur_best_bid != self.prev_best_bid || cur_best_ask != self.prev_best_ask;
         CommittedState {
             ts,
@@ -226,7 +242,7 @@ impl BookBuilder {
     /// Get the flow state from the most recent commit.
     /// Returns a default FlowState if no commit has occurred yet.
     pub fn current_flow_state(&self) -> flow::FlowState {
-        self.last_flow_state.clone().unwrap_or_else(|| flow::FlowState {
+        self.last_flow_state.unwrap_or(flow::FlowState {
             ts: 0,
             trade_flow: [0.0; flow::NUM_SCALES],
             cancel_bid: [0.0; flow::NUM_SCALES],
@@ -244,7 +260,7 @@ impl BookBuilder {
 
     // --- Private methods ---
 
-    fn levels_for_mut(&mut self, side: char) -> &mut BTreeMap<i64, u32> {
+    fn levels_for_mut(&mut self, side: char) -> &mut Vec<(i64, u32)> {
         if side == 'B' {
             &mut self.bid_levels
         } else {
@@ -253,28 +269,17 @@ impl BookBuilder {
     }
 
     fn add_to_level(&mut self, side: char, price: i64, size: u32) {
-        *self.levels_for_mut(side).entry(price).or_insert(0) += size;
+        level_add(self.levels_for_mut(side), price, size);
     }
 
     fn remove_from_level(&mut self, info: &OrderInfo) {
-        let levels = if info.side == 'B' {
-            &mut self.bid_levels
-        } else {
-            &mut self.ask_levels
-        };
-        if let Some(lvl) = levels.get_mut(&info.price) {
-            if *lvl <= info.size {
-                levels.remove(&info.price);
-            } else {
-                *lvl -= info.size;
-            }
-        }
+        level_sub(self.levels_for_mut(info.side), info.price, info.size);
     }
 
     fn apply_add(&mut self, order_id: u64, side: char, price: i64, size: u32) {
         self.orders.insert(
             order_id,
-            OrderInfo { side, price, size },
+            OrderInfo { price, size, side },
         );
         self.add_to_level(side, price, size);
     }
@@ -288,7 +293,7 @@ impl BookBuilder {
     fn apply_modify(&mut self, order_id: u64, side: char, new_price: i64, new_size: u32) {
         if let Some(info) = self.orders.remove(&order_id) {
             self.remove_from_level(&info);
-            self.orders.insert(order_id, OrderInfo { side, price: new_price, size: new_size });
+            self.orders.insert(order_id, OrderInfo { price: new_price, size: new_size, side });
             self.add_to_level(side, new_price, new_size);
         }
     }
@@ -316,18 +321,18 @@ impl BookBuilder {
 
     fn commit(&mut self, ts: u64) {
         // Update BBO tracking
-        let cur_best_bid = self.bid_levels.keys().next_back().copied();
-        let cur_best_ask = self.ask_levels.keys().next().copied();
+        let cur_best_bid = self.bid_levels.last().map(|(p, _)| *p);
+        let cur_best_ask = self.ask_levels.first().map(|(p, _)| *p);
         let bbo_changed = cur_best_bid != self.prev_best_bid || cur_best_ask != self.prev_best_ask;
         self.prev_best_bid = cur_best_bid;
         self.prev_best_ask = cur_best_ask;
 
         // Snapshot flow accumulators at this commit point
         let best_bid_size = cur_best_bid
-            .and_then(|p| self.bid_levels.get(&p).copied())
+            .and_then(|p| level_get(&self.bid_levels, p))
             .unwrap_or(0);
         let best_ask_size = cur_best_ask
-            .and_then(|p| self.ask_levels.get(&p).copied())
+            .and_then(|p| level_get(&self.ask_levels, p))
             .unwrap_or(0);
         let flow_state = self.flow_accums.snapshot(
             ts,

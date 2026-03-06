@@ -5,6 +5,7 @@
 //! builder and suppresses BBO validation until BOTH conditions are met:
 //!   1. SnapshotComplete received (dispatcher finished replaying 116 messages)
 //!   2. At least one fresh BBO received post-clear
+//!
 //! After re-enable, a warmup period lets the DBO stream catch up with the
 //! BBO feed before strict validation begins.
 //!
@@ -19,6 +20,7 @@
 
 use std::time::SystemTime;
 
+use book_builder::flow::NUM_FLOW_FEATURES;
 use book_builder::BookBuilder;
 use tokio::sync::mpsc;
 
@@ -29,10 +31,11 @@ use crate::error::RithmicError;
 use crate::health_log::HealthLogger;
 
 /// Output row from the pipeline (timestamp + feature values).
-#[derive(Debug, Clone)]
+/// Fixed-size, no heap allocation.
+#[derive(Debug, Clone, Copy)]
 pub struct FeatureOutput {
     pub timestamp: u64,
-    pub features: Vec<f64>,
+    pub features: [f32; NUM_FLOW_FEATURES],
 }
 
 // =========================================================================
@@ -139,28 +142,23 @@ impl BboRingBuffer {
     /// Find best-match BBO for a DBO event:
     /// 1. Among BBOs with exact price match on both bid and ask, pick closest gateway ts
     /// 2. If none match, pick closest gateway ts overall
+    ///
     /// Returns (matched_bbo, is_exact_match)
     fn best_match(&self, book_bid: i64, book_ask: i64, dbo_gw_ts: u64) -> Option<(&BboUpdate, bool)> {
         let mut best_exact: Option<(&BboUpdate, u64)> = None;
         let mut best_any: Option<(&BboUpdate, u64)> = None;
 
-        for slot in &self.buf {
-            if let Some(bbo) = slot {
-                let age = if dbo_gw_ts >= bbo.ts_ns {
-                    dbo_gw_ts - bbo.ts_ns
-                } else {
-                    bbo.ts_ns - dbo_gw_ts
-                };
+        for bbo in self.buf.iter().flatten() {
+            let age = dbo_gw_ts.abs_diff(bbo.ts_ns);
 
-                if best_any.is_none() || age < best_any.unwrap().1 {
-                    best_any = Some((bbo, age));
-                }
+            if best_any.is_none() || age < best_any.unwrap().1 {
+                best_any = Some((bbo, age));
+            }
 
-                if bbo.bid_price == book_bid && bbo.ask_price == book_ask {
-                    if best_exact.is_none() || age < best_exact.unwrap().1 {
-                        best_exact = Some((bbo, age));
-                    }
-                }
+            if bbo.bid_price == book_bid && bbo.ask_price == book_ask
+                && (best_exact.is_none() || age < best_exact.unwrap().1)
+            {
+                best_exact = Some((bbo, age));
             }
         }
 
@@ -187,7 +185,6 @@ pub async fn run_pipeline(
     mut command_rx: mpsc::Receiver<PipelineCommand>,
     mut bbo_rx: mpsc::Receiver<BboUpdate>,
     output_tx: mpsc::Sender<FeatureOutput>,
-    _recovery_tx: mpsc::Sender<()>,
     health: HealthLogger,
     counters: MessageCounters,
     instrument_id: u32,
@@ -222,10 +219,10 @@ pub async fn run_pipeline(
                 match bbo {
                     Some(update) => {
                         // Record gateway→local latency for BBO
-                        if update.receive_wall_ns > 0 && update.ts_ns > 0 {
-                            if update.receive_wall_ns > update.ts_ns {
-                                hist_gateway_to_local.record_ns(update.receive_wall_ns - update.ts_ns);
-                            }
+                        if update.receive_wall_ns > 0 && update.ts_ns > 0
+                            && update.receive_wall_ns > update.ts_ns
+                        {
+                            hist_gateway_to_local.record_ns(update.receive_wall_ns - update.ts_ns);
                         }
                         bbo_ring.push(update);
                         if in_recovery {
@@ -346,11 +343,7 @@ pub async fn run_pipeline(
                                     if let Some((bbo, is_exact)) = bbo_ring.best_match(bb, ba, gateway_ts) {
                                         counters.inc_bbo_validations();
 
-                                        let feed_age_ns = if gateway_ts >= bbo.ts_ns {
-                                            gateway_ts - bbo.ts_ns
-                                        } else {
-                                            bbo.ts_ns - gateway_ts
-                                        };
+                                        let feed_age_ns = gateway_ts.abs_diff(bbo.ts_ns);
 
                                         hist_feed_alignment.record_ns(feed_age_ns);
 
@@ -390,10 +383,9 @@ pub async fn run_pipeline(
 
                             // Emit flow features at every batch boundary
                             let flow = book.current_flow_state();
-                            let features = flow.to_features();
                             let output = FeatureOutput {
                                 timestamp: ts_event,
-                                features: features.iter().map(|&f| f as f64).collect(),
+                                features: flow.to_features(),
                             };
                             if output_tx.send(output).await.is_err() {
                                 return Err(RithmicError::Channel(

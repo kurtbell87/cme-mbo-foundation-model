@@ -52,7 +52,7 @@ impl EmaAccumulator {
     pub fn new(halflives_events: [f64; NUM_SCALES]) -> Self {
         let mut decays = [0.0; NUM_SCALES];
         for i in 0..NUM_SCALES {
-            decays[i] = (-0.693147180559945 / halflives_events[i]).exp();
+            decays[i] = (-std::f64::consts::LN_2 / halflives_events[i]).exp();
         }
         Self {
             values: [0.0; NUM_SCALES],
@@ -112,9 +112,9 @@ pub struct FlowAccumulators {
     /// Previous best ask price (for OFI price-change handling).
     prev_best_ask_price: Option<i64>,
 
-    /// Actions that modified the best level since the last commit.
-    /// Used to determine BboChangeCause.
-    pending_bbo_actions: Vec<(char, char)>, // (action, side)
+    /// Bitmask of action types that modified the BBO since the last commit.
+    /// bit 0 = trade/fill, bit 1 = cancel, bit 2 = add, bit 3 = modify.
+    pending_bbo_action_mask: u8,
 
     /// Timestamp of last MBO event (for inter-event time computation).
     last_event_ts: u64,
@@ -139,7 +139,7 @@ impl FlowAccumulators {
             prev_best_ask_size: 0,
             prev_best_bid_price: None,
             prev_best_ask_price: None,
-            pending_bbo_actions: Vec::new(),
+            pending_bbo_action_mask: 0,
             last_event_ts: 0,
             events_initialized: false,
             last_inter_event_ns: 0.0,
@@ -208,8 +208,14 @@ impl FlowAccumulators {
 
     /// Record that an action potentially modified the BBO.
     /// Called after the book update when we detect a BBO-affecting action.
-    pub fn record_bbo_action(&mut self, action: char, side: char) {
-        self.pending_bbo_actions.push((action, side));
+    pub fn record_bbo_action(&mut self, action: char, _side: char) {
+        self.pending_bbo_action_mask |= match action {
+            'T' | 'F' => 0x01,
+            'C' => 0x02,
+            'A' => 0x04,
+            'M' => 0x08,
+            _ => 0,
+        };
     }
 
     /// Snapshot flow state at a commit point.
@@ -257,9 +263,9 @@ impl FlowAccumulators {
         let cause = if !bbo_changed {
             BboChangeCause::None
         } else {
-            classify_bbo_cause(&self.pending_bbo_actions)
+            classify_bbo_cause(self.pending_bbo_action_mask)
         };
-        self.pending_bbo_actions.clear();
+        self.pending_bbo_action_mask = 0;
 
         // Query all accumulators (no timestamp needed)
         let trade_flow = to_f32_3(self.trade_flow.query());
@@ -333,42 +339,21 @@ fn compute_side_ofi(
     }
 }
 
-/// Classify what caused the BBO change from pending actions.
-fn classify_bbo_cause(actions: &[(char, char)]) -> BboChangeCause {
-    if actions.is_empty() {
+/// Classify what caused the BBO change from the action bitmask.
+/// Bits: 0=trade/fill, 1=cancel, 2=add, 3=modify.
+fn classify_bbo_cause(mask: u8) -> BboChangeCause {
+    if mask == 0 {
         return BboChangeCause::None;
     }
-
-    let mut has_trade = false;
-    let mut has_cancel = false;
-    let mut has_add = false;
-    let mut has_modify = false;
-
-    for &(action, _side) in actions {
-        match action {
-            'T' | 'F' => has_trade = true,
-            'C' => has_cancel = true,
-            'A' => has_add = true,
-            'M' => has_modify = true,
-            _ => {}
-        }
-    }
-
-    let count = has_trade as u8 + has_cancel as u8 + has_add as u8 + has_modify as u8;
-    if count > 1 {
+    if mask.count_ones() > 1 {
         return BboChangeCause::Multiple;
     }
-
-    if has_trade {
-        BboChangeCause::AggressiveTrade
-    } else if has_cancel {
-        BboChangeCause::Cancel
-    } else if has_add {
-        BboChangeCause::NewLevel
-    } else if has_modify {
-        BboChangeCause::Modify
-    } else {
-        BboChangeCause::None
+    match mask {
+        0x01 => BboChangeCause::AggressiveTrade,
+        0x02 => BboChangeCause::Cancel,
+        0x04 => BboChangeCause::NewLevel,
+        0x08 => BboChangeCause::Modify,
+        _ => BboChangeCause::None,
     }
 }
 
@@ -506,7 +491,7 @@ mod tests {
         ema.update(100.0);
 
         let vals = ema.query();
-        let decay = (-0.693147180559945_f64 / 50.0).exp();
+        let decay = (-std::f64::consts::LN_2 / 50.0).exp();
         let expected = 100.0 * decay + 100.0;
         assert!(
             (vals[0] - expected).abs() < 0.1,
@@ -525,7 +510,7 @@ mod tests {
 
         let state = accums.snapshot(1_000_000_000, false, Some(100), Some(101), 10, 10);
         // Net trade flow: +5 decayed once then -3 added
-        let decay = (-0.693147180559945_f64 / 50.0).exp();
+        let decay = (-std::f64::consts::LN_2 / 50.0).exp();
         let expected = 5.0 * decay - 3.0;
         assert!(
             (state.trade_flow[0] as f64 - expected).abs() < 0.1,

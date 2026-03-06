@@ -110,6 +110,7 @@ pub async fn discover_gateway_uris(
 /// 2. Queries gateway URIs for the chosen system, selects ticker plant URI
 /// 3. Connects to the plant URI and logs in
 /// 4. Returns the authenticated WebSocket stream + metadata
+#[allow(clippy::too_many_arguments)]
 pub async fn authenticate(
     uri: &str,
     cert_path: Option<&str>,
@@ -241,6 +242,7 @@ pub async fn authenticate(
 /// plant URI are already known from a prior `authenticate()` call. This avoids
 /// creating temporary discovery connections that may count toward Rithmic's
 /// concurrent session limit.
+#[allow(clippy::too_many_arguments)]
 pub async fn login_only(
     plant_uri: &str,
     cert_path: Option<&str>,
