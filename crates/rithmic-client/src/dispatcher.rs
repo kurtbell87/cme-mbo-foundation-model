@@ -1,7 +1,10 @@
-//! Dispatcher: decodes raw WebSocket messages and routes by template_id.
+//! Dispatcher: decodes raw DBO WebSocket messages and routes by template_id.
 //!
-//! The dispatcher extracts metadata once per message (no double-parsing)
-//! and sends typed events to the appropriate downstream channels.
+//! In the two-connection architecture, the dispatcher only handles messages
+//! from the DBO connection (Conn 1): DBO incrementals (160), snapshots (116),
+//! snapshot end (161), DBO sub ack (118), heartbeats, rejects, and logouts.
+//! BBO (151), LastTrade (150), and market data ack (101) are handled by the
+//! BBO reader on Conn 2.
 //!
 //! ## Snapshot state machine
 //!
@@ -35,7 +38,7 @@ use prost::Message;
 use tokio::sync::mpsc;
 
 use crate::adapter::{
-    self, BboUpdate, OrderEvent, OrderIdMap,
+    self, OrderEvent, OrderIdMap,
 };
 use crate::connection::{decode_ws_payload, encode_ws_message};
 use crate::counters::MessageCounters;
@@ -97,13 +100,13 @@ enum DispatcherState {
 
 /// Run the dispatcher task.
 ///
-/// Reads raw WebSocket binary messages from `raw_msg_rx`, decodes them,
-/// and routes to the appropriate downstream channels. Handles both cold-start
-/// snapshot loading and sequence gap recovery via unified LoadingSnapshot state.
+/// Reads raw WebSocket binary messages from the DBO connection, decodes them,
+/// and routes to the pipeline. Handles DBO (160), snapshots (116/161),
+/// DBO sub ack (118), heartbeats, rejects, and logouts.
+/// BBO and trades are handled by the BBO reader on a separate connection.
 pub async fn run_dispatcher(
     mut raw_msg_rx: mpsc::Receiver<Vec<u8>>,
     order_event_tx: mpsc::Sender<PipelineCommand>,
-    bbo_tx: mpsc::Sender<BboUpdate>,
     ws_cmd_tx: mpsc::Sender<Vec<u8>>,
     raw_capture_tx: Option<mpsc::Sender<CaptureRecord>>,
     counters: MessageCounters,
@@ -482,86 +485,6 @@ pub async fn run_dispatcher(
                 counters.inc_processed();
             }
 
-            // LastTrade (150)
-            150 => {
-                counters.inc_trade();
-                let trade = match rti::LastTrade::decode(payload) {
-                    Ok(t) => t,
-                    Err(_) => continue,
-                };
-
-                // Send capture record (lossy)
-                if let Some(ref cap_tx) = raw_capture_tx {
-                    let record = CaptureRecord {
-                        template_id: tid,
-                        sequence_number: None,
-                        exchange_ts_ns: extract_exchange_ts_trade(&trade),
-                        gateway_ts_ns: extract_gateway_ts_trade(&trade),
-                        receive_ns,
-                        symbol: trade.symbol.clone(),
-                        raw_bytes: payload.to_vec(),
-                    };
-                    if cap_tx.try_send(record).is_err() {
-                        counters.inc_capture_drops();
-                    }
-                }
-
-                // Trades are forwarded even during snapshot loading — they don't affect
-                // book state (action='T') and are safe to apply at any time.
-                if let Some(event) = adapter::last_trade_to_event(&trade, instrument_id) {
-                    if order_event_tx.send(PipelineCommand::Event(event)).await.is_err() {
-                        return Err(RithmicError::Channel("order_event_tx closed".into()));
-                    }
-                }
-
-                counters.inc_processed();
-            }
-
-            // BestBidOffer (151)
-            151 => {
-                counters.inc_bbo();
-                let bbo = match rti::BestBidOffer::decode(payload) {
-                    Ok(b) => b,
-                    Err(_) => continue,
-                };
-
-                // Send capture record (lossy)
-                if let Some(ref cap_tx) = raw_capture_tx {
-                    let record = CaptureRecord {
-                        template_id: tid,
-                        sequence_number: None,
-                        exchange_ts_ns: None,
-                        gateway_ts_ns: extract_gateway_ts_bbo(&bbo),
-                        receive_ns,
-                        symbol: bbo.symbol.clone(),
-                        raw_bytes: payload.to_vec(),
-                    };
-                    if cap_tx.try_send(record).is_err() {
-                        counters.inc_capture_drops();
-                    }
-                }
-
-                // BBO always forwarded — pipeline suppresses validation during recovery
-                if let Some(update) = adapter::best_bid_offer_to_update(&bbo) {
-                    if bbo_tx.send(update).await.is_err() {
-                        return Err(RithmicError::Channel("bbo_tx closed".into()));
-                    }
-                }
-
-                counters.inc_processed();
-            }
-
-            // ResponseMarketDataUpdate (101) — subscription ack
-            101 => {
-                if let Ok(resp) = rti::ResponseMarketDataUpdate::decode(payload) {
-                    eprintln!(
-                        "[dispatcher] market data sub ack: rp_code={:?} user_msg={:?}",
-                        resp.rp_code, resp.user_msg
-                    );
-                }
-                counters.inc_processed();
-            }
-
             // ResponseDepthByOrderUpdates (118) — DBO subscription ack
             118 => {
                 if let Ok(resp) = rti::ResponseDepthByOrderUpdates::decode(payload) {
@@ -641,23 +564,3 @@ fn extract_gateway_ts_dbo(dbo: &rti::DepthByOrder) -> Option<u64> {
     }
 }
 
-fn extract_exchange_ts_trade(trade: &rti::LastTrade) -> Option<u64> {
-    match (trade.source_ssboe, trade.source_nsecs) {
-        (Some(ss), Some(ns)) => Some(adapter::exchange_ts_ns(ss, ns)),
-        _ => None,
-    }
-}
-
-fn extract_gateway_ts_trade(trade: &rti::LastTrade) -> Option<u64> {
-    match (trade.ssboe, trade.usecs) {
-        (Some(ss), Some(us)) => Some(adapter::gateway_ts_ns(ss, us)),
-        _ => None,
-    }
-}
-
-fn extract_gateway_ts_bbo(bbo: &rti::BestBidOffer) -> Option<u64> {
-    match (bbo.ssboe, bbo.usecs) {
-        (Some(ss), Some(us)) => Some(adapter::gateway_ts_ns(ss, us)),
-        _ => None,
-    }
-}

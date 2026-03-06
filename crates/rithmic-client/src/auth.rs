@@ -234,3 +234,83 @@ pub async fn authenticate(
         "server closed before sending login response".to_string(),
     ))
 }
+
+/// Login-only authentication — skips system info and gateway discovery.
+///
+/// Use this for establishing a second connection when the system name and
+/// plant URI are already known from a prior `authenticate()` call. This avoids
+/// creating temporary discovery connections that may count toward Rithmic's
+/// concurrent session limit.
+pub async fn login_only(
+    plant_uri: &str,
+    cert_path: Option<&str>,
+    user: &str,
+    password: &str,
+    app_name: &str,
+    app_version: &str,
+    system_name: &str,
+    infra_type: InfraType,
+) -> Result<AuthResult, RithmicError> {
+    let mut ws = connect(plant_uri, cert_path).await?;
+
+    let login = rti::RequestLogin::new(
+        user,
+        password,
+        app_name,
+        app_version,
+        system_name,
+        infra_type,
+    );
+
+    ws.send(encode_ws_message(&login))
+        .await
+        .map_err(|e| RithmicError::WebSocket(format!("send login: {e}")))?;
+
+    while let Some(msg_result) = ws.next().await {
+        let msg = msg_result
+            .map_err(|e| RithmicError::WebSocket(format!("read login response: {e}")))?;
+
+        if let Some(payload) = decode_ws_payload(&msg) {
+            let tid = match extract_template_id(payload) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+
+            match tid {
+                11 => {
+                    let resp = <rti::ResponseLogin as prost::Message>::decode(payload)?;
+                    let rp_codes = resp.rp_code.as_deref().unwrap_or(&[]);
+                    let is_success = rp_codes.iter().any(|c| c == "0");
+
+                    if !is_success {
+                        let user_msgs = resp.user_msg.as_deref().unwrap_or(&[]);
+                        return Err(RithmicError::AuthFailed(format!(
+                            "login rejected: rp_code={:?}, user_msg={:?}",
+                            rp_codes, user_msgs
+                        )));
+                    }
+
+                    let heartbeat_interval = resp.heartbeat_interval.unwrap_or(60.0) as u64;
+
+                    return Ok(AuthResult {
+                        ws_stream: ws,
+                        system_name: system_name.to_string(),
+                        heartbeat_interval,
+                    });
+                }
+                75 => {
+                    let reject = <rti::Reject as prost::Message>::decode(payload)?;
+                    return Err(RithmicError::ServerReject(format!(
+                        "login rejected: {:?}",
+                        reject.user_msg
+                    )));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Err(RithmicError::AuthFailed(
+        "server closed before sending login response".to_string(),
+    ))
+}
