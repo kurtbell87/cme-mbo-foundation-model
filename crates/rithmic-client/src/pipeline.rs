@@ -1,13 +1,9 @@
 //! Live pipeline task: feeds OrderEvents into BookBuilder, validates against
 //! BBO, emits flow features at each F_LAST batch boundary.
 //!
-//! Handles ClearBook commands during snapshot recovery: resets the book
-//! builder and suppresses BBO validation until BOTH conditions are met:
-//!   1. SnapshotComplete received (dispatcher finished replaying 116 messages)
-//!   2. At least one fresh BBO received post-clear
-//!
-//! After re-enable, a warmup period lets the DBO stream catch up with the
-//! BBO feed before strict validation begins.
+//! Each instrument runs as its own pipeline task on a separate tokio task
+//! (and therefore potentially a separate OS thread). The pipeline receives
+//! only events for its own instrument via dedicated channels.
 //!
 //! BBO instrumentation: on every batch boundary where both book top-of-book
 //! and latest BBO exist, logs a `bbo_check` event with raw timestamps from
@@ -35,6 +31,7 @@ use crate::health_log::HealthLogger;
 #[derive(Debug, Clone, Copy)]
 pub struct FeatureOutput {
     pub timestamp: u64,
+    pub instrument_id: u32,
     pub features: [f32; NUM_FLOW_FEATURES],
 }
 
@@ -175,7 +172,7 @@ impl BboRingBuffer {
 // Pipeline
 // =========================================================================
 
-/// Run the pipeline task.
+/// Run the pipeline task for a single instrument.
 ///
 /// Receives PipelineCommands (OrderEvents + ClearBook signals) and BboUpdates,
 /// feeds them through BookBuilder → flow features on each F_LAST boundary.
@@ -188,16 +185,15 @@ pub async fn run_pipeline(
     health: HealthLogger,
     counters: MessageCounters,
     instrument_id: u32,
+    symbol: String,
     _tick_size: f64,
 ) -> Result<(), RithmicError> {
     let mut book = BookBuilder::new(instrument_id);
 
     let mut bbo_ring = BboRingBuffer::new();
-    // Tick size in fixed-point for computing tick deltas
     let tick_size_fixed = crate::adapter::price_to_fixed(_tick_size);
 
-    // Recovery gating: suppresses BBO validation after ClearBook until
-    // SnapshotComplete is received AND at least one fresh BBO arrives.
+    // Recovery gating
     let mut snapshot_complete_received: bool = false;
     let mut recovery_bbo_received: bool = false;
     let mut in_recovery: bool = true;
@@ -227,15 +223,14 @@ pub async fn run_pipeline(
                         bbo_ring.push(update);
                         if in_recovery {
                             recovery_bbo_received = true;
-                            // Re-enable if snapshot already completed
                             if snapshot_complete_received {
                                 in_recovery = false;
-                                eprintln!("[pipeline] BBO validation re-enabled (snapshot complete + BBO received)");
+                                eprintln!("[pipeline:{}] BBO validation re-enabled (snapshot complete + BBO received)", symbol);
                             }
                         }
                     }
                     None => {
-                        eprintln!("[pipeline] BBO channel closed, shutting down");
+                        eprintln!("[pipeline:{}] BBO channel closed, shutting down", symbol);
                         return Ok(());
                     }
                 }
@@ -245,43 +240,50 @@ pub async fn run_pipeline(
                 let cmd = match cmd {
                     Some(c) => c,
                     None => {
-                        eprintln!("[pipeline] command channel closed, shutting down");
+                        eprintln!("[pipeline:{}] command channel closed, shutting down", symbol);
                         return Ok(());
                     }
                 };
 
                 match cmd {
-                    PipelineCommand::ClearBook => {
-                        eprintln!("[pipeline] ClearBook received — resetting book builder");
+                    PipelineCommand::ClearBook { .. } => {
+                        eprintln!("[pipeline:{}] ClearBook received — resetting book builder", symbol);
                         book = BookBuilder::new(instrument_id);
                         in_recovery = true;
                         snapshot_complete_received = false;
                         recovery_bbo_received = false;
                     }
 
-                    PipelineCommand::SnapshotComplete => {
+                    PipelineCommand::SnapshotComplete { .. } => {
                         snapshot_complete_received = true;
 
                         if !initial_snapshot_done {
                             initial_snapshot_done = true;
                             health.log("snapshot_complete", serde_json::json!({
+                                "symbol": symbol,
+                                "instrument_id": instrument_id,
                                 "initial": true,
                                 "post_initial_recoveries": 0,
                             }));
-                            eprintln!("[pipeline] initial snapshot complete — bbo_check logging enabled");
+                            eprintln!("[pipeline:{}] initial snapshot complete — bbo_check logging enabled", symbol);
                         } else {
                             post_initial_recoveries += 1;
                             health.log("snapshot_complete", serde_json::json!({
+                                "symbol": symbol,
+                                "instrument_id": instrument_id,
                                 "initial": false,
                                 "post_initial_recoveries": post_initial_recoveries,
                             }));
                             if post_initial_recoveries >= MAX_POST_INITIAL_RECOVERIES {
                                 let msg = format!(
-                                    "{post_initial_recoveries} divergence-triggered recoveries — \
-                                     book cannot stabilize, exiting"
+                                    "{} instrument {}: {} divergence-triggered recoveries — \
+                                     book cannot stabilize, exiting",
+                                    symbol, instrument_id, post_initial_recoveries
                                 );
-                                eprintln!("[pipeline] DEGRADED: {msg}");
+                                eprintln!("[pipeline:{}] DEGRADED: {msg}", symbol);
                                 health.log("degraded", serde_json::json!({
+                                    "symbol": symbol,
+                                    "instrument_id": instrument_id,
                                     "reason": msg,
                                     "post_initial_recoveries": post_initial_recoveries,
                                 }));
@@ -291,7 +293,7 @@ pub async fn run_pipeline(
 
                         if in_recovery && recovery_bbo_received {
                             in_recovery = false;
-                            eprintln!("[pipeline] BBO validation re-enabled (snapshot complete + BBO received)");
+                            eprintln!("[pipeline:{}] BBO validation re-enabled (snapshot complete + BBO received)", symbol);
                         }
                     }
 
@@ -301,7 +303,7 @@ pub async fn run_pipeline(
                         let gateway_ts = event.gateway_ts_ns;
                         let receive_wall = event.receive_wall_ns;
 
-                        // Record latency: exchange→gateway (DBO only, when both timestamps available)
+                        // Record latency: exchange→gateway
                         if event.action != 'T' && ts_event > 0 && gateway_ts > 0 && gateway_ts > ts_event {
                             hist_exchange_to_gateway.record_ns(gateway_ts - ts_event);
                         }
@@ -311,7 +313,7 @@ pub async fn run_pipeline(
                             hist_gateway_to_local.record_ns(receive_wall - gateway_ts);
                         }
 
-                        // Record latency: end-to-end (exchange→now)
+                        // Record latency: end-to-end
                         if ts_event > 0 && receive_wall > 0 {
                             let now_ns = SystemTime::now()
                                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -363,6 +365,8 @@ pub async fn run_pipeline(
                                         }
 
                                         health.log("bbo_check", serde_json::json!({
+                                            "symbol": symbol,
+                                            "instrument_id": instrument_id,
                                             "book_bid": bb,
                                             "book_ask": ba,
                                             "bbo_bid": bbo.bid_price,
@@ -381,10 +385,11 @@ pub async fn run_pipeline(
                                 }
                             }
 
-                            // Emit flow features at every batch boundary
+                            // Emit flow features
                             let flow = book.current_flow_state();
                             let output = FeatureOutput {
                                 timestamp: ts_event,
+                                instrument_id,
                                 features: flow.to_features(),
                             };
                             if output_tx.send(output).await.is_err() {
@@ -398,7 +403,6 @@ pub async fn run_pipeline(
             }
 
             _ = summary_interval.tick() => {
-                // Drain all histograms and log summaries
                 let (e2e_n, e2e_p50, e2e_p95, e2e_p99, e2e_mean) = hist_end_to_end.drain();
                 let (exg_n, exg_p50, exg_p95, exg_p99, _) = hist_exchange_to_gateway.drain();
                 let (g2l_n, g2l_p50, g2l_p95, g2l_p99, _) = hist_gateway_to_local.drain();
@@ -406,6 +410,8 @@ pub async fn run_pipeline(
 
                 if e2e_n > 0 {
                     health.log("latency_end_to_end", serde_json::json!({
+                        "symbol": symbol,
+                        "instrument_id": instrument_id,
                         "n": e2e_n,
                         "p50_us": e2e_p50,
                         "p95_us": e2e_p95,
@@ -413,7 +419,8 @@ pub async fn run_pipeline(
                         "mean_us": e2e_mean,
                     }));
                     eprintln!(
-                        "[latency] e2e: n={} p50={}us p95={}us p99={}us | exg→gw: n={} p50={}us p95={}us | gw→local: n={} p50={}us p95={}us | feed_align: n={} p50={}us p95={}us",
+                        "[latency:{}] e2e: n={} p50={}us p95={}us p99={}us | exg→gw: n={} p50={}us p95={}us | gw→local: n={} p50={}us p95={}us | feed_align: n={} p50={}us p95={}us",
+                        symbol,
                         e2e_n, e2e_p50, e2e_p95, e2e_p99,
                         exg_n, exg_p50, exg_p95,
                         g2l_n, g2l_p50, g2l_p95,
@@ -423,16 +430,22 @@ pub async fn run_pipeline(
 
                 if exg_n > 0 {
                     health.log("latency_exchange_to_gateway", serde_json::json!({
+                        "symbol": symbol,
+                        "instrument_id": instrument_id,
                         "n": exg_n, "p50_us": exg_p50, "p95_us": exg_p95, "p99_us": exg_p99,
                     }));
                 }
                 if g2l_n > 0 {
                     health.log("latency_gateway_to_local", serde_json::json!({
+                        "symbol": symbol,
+                        "instrument_id": instrument_id,
                         "n": g2l_n, "p50_us": g2l_p50, "p95_us": g2l_p95, "p99_us": g2l_p99,
                     }));
                 }
                 if fa_n > 0 {
                     health.log("latency_feed_alignment", serde_json::json!({
+                        "symbol": symbol,
+                        "instrument_id": instrument_id,
                         "n": fa_n, "p50_us": fa_p50, "p95_us": fa_p95, "p99_us": fa_p99,
                     }));
                 }

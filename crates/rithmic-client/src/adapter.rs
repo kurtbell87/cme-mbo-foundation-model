@@ -53,6 +53,8 @@ pub struct BboUpdate {
     pub ts_ns: u64,
     /// Local wall-clock at WebSocket receive (nanos since UNIX epoch).
     pub receive_wall_ns: u64,
+    /// Instrument identifier (matches SymbolConfig.instrument_id).
+    pub instrument_id: u32,
     pub bid_price: i64,
     pub bid_size: i32,
     /// Implied/synthetic bid quantity from calendar spreads (0 = outright only).
@@ -366,7 +368,7 @@ pub fn last_trade_to_event(
 // =========================================================================
 
 /// Convert a BestBidOffer (151) message into a BboUpdate.
-pub fn best_bid_offer_to_update(msg: &rti::BestBidOffer, receive_wall_ns: u64) -> Option<BboUpdate> {
+pub fn best_bid_offer_to_update(msg: &rti::BestBidOffer, instrument_id: u32, receive_wall_ns: u64) -> Option<BboUpdate> {
     let bid_price = msg.bid_price?;
     let ask_price = msg.ask_price?;
 
@@ -379,6 +381,7 @@ pub fn best_bid_offer_to_update(msg: &rti::BestBidOffer, receive_wall_ns: u64) -
     Some(BboUpdate {
         ts_ns,
         receive_wall_ns,
+        instrument_id,
         bid_price: price_to_fixed(bid_price),
         bid_size: msg.bid_size.unwrap_or(0),
         bid_implicit_size: msg.bid_implicit_size.unwrap_or(0),
@@ -682,7 +685,7 @@ mod tests {
             ..Default::default()
         };
 
-        let update = best_bid_offer_to_update(&msg, 5555).unwrap();
+        let update = best_bid_offer_to_update(&msg, 1, 5555).unwrap();
         assert_eq!(update.bid_price, 5_000_250_000_000);
         assert_eq!(update.bid_size, 42);
         assert_eq!(update.ask_price, 5_000_500_000_000);
@@ -699,7 +702,7 @@ mod tests {
             ask_price: Some(5000.50),
             ..Default::default()
         };
-        assert!(best_bid_offer_to_update(&msg, 0).is_none());
+        assert!(best_bid_offer_to_update(&msg, 1, 0).is_none());
     }
 
     #[test]
@@ -720,7 +723,7 @@ mod tests {
             usecs: Some(0),
             ..Default::default()
         };
-        let bbo_update = best_bid_offer_to_update(&bbo_msg, 0).unwrap();
+        let bbo_update = best_bid_offer_to_update(&bbo_msg, 1, 0).unwrap();
 
         assert_eq!(dbo_fixed, bbo_update.bid_price);
         assert_eq!(dbo_fixed, bbo_update.ask_price);

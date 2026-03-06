@@ -1,0 +1,13 @@
+[package]
+name = "book-verify"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "book-verify"
+path = "src/main.rs"
+
+[dependencies]
+book-builder = { workspace = true }
+dbn = { workspace = true }
+clap = { workspace = true }

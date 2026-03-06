@@ -1,6 +1,17 @@
 //! Configuration for the Rithmic client.
 
+use std::collections::HashMap;
+
 use crate::error::RithmicError;
+
+/// Per-instrument configuration.
+#[derive(Debug, Clone)]
+pub struct SymbolConfig {
+    pub symbol: String,
+    pub exchange: String,
+    pub tick_size: f64,
+    pub instrument_id: u32,
+}
 
 /// Configuration for a Rithmic WebSocket connection.
 #[derive(Debug, Clone)]
@@ -17,12 +28,8 @@ pub struct RithmicConfig {
     pub app_name: String,
     /// Application version sent to Rithmic.
     pub app_version: String,
-    /// Target symbol (e.g., "MES").
-    pub symbol: String,
-    /// Target exchange (e.g., "CME").
-    pub exchange: String,
-    /// Tick size for the instrument (e.g., 0.25 for MES).
-    pub tick_size: f64,
+    /// Instruments to subscribe to.
+    pub instruments: Vec<SymbolConfig>,
     /// S3 bucket for raw message capture. None = disable S3 capture.
     pub s3_bucket: Option<String>,
     /// Preferred Rithmic system name (e.g., "Rithmic Paper Trading").
@@ -78,14 +85,30 @@ impl RithmicConfig {
             password,
             app_name,
             app_version,
-            symbol,
-            exchange,
-            tick_size,
+            instruments: vec![SymbolConfig {
+                symbol,
+                exchange,
+                tick_size,
+                instrument_id: 1,
+            }],
             s3_bucket,
             system_name,
             dev_mode,
             log_file: String::new(), // set by caller (main.rs auto-generates)
         })
+    }
+
+    /// Build a symbol→SymbolConfig lookup map.
+    pub fn symbol_map(&self) -> HashMap<String, SymbolConfig> {
+        self.instruments
+            .iter()
+            .map(|sc| (sc.symbol.clone(), sc.clone()))
+            .collect()
+    }
+
+    /// Get the first instrument's symbol (for backward-compat logging).
+    pub fn primary_symbol(&self) -> &str {
+        self.instruments.first().map(|s| s.symbol.as_str()).unwrap_or("UNKNOWN")
     }
 }
 

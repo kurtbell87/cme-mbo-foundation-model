@@ -1,8 +1,10 @@
-//! BBO reader: decodes BBO (151) and LastTrade (150) messages from a
-//! dedicated market-data WebSocket connection.
+//! BBO reader: decodes BBO (151) and LastTrade (150) messages from the
+//! market-data WebSocket channel.
 //!
-//! Runs on the BBO connection (Conn 2) in the two-connection architecture.
-//! DBO messages never arrive here — they flow through the dispatcher on Conn 1.
+//! Routes updates to per-instrument pipeline tasks by looking up the symbol
+//! in each decoded message.
+
+use std::collections::HashMap;
 
 use prost::Message;
 use tokio::sync::mpsc;
@@ -18,16 +20,17 @@ use crate::rti;
 
 /// Run the BBO reader task.
 ///
-/// Receives raw WebSocket binary messages from the BBO connection,
-/// decodes them, and routes BBO updates and trade events to the pipeline.
+/// Receives raw WebSocket binary messages from the BBO channel,
+/// decodes them, and routes BBO updates and trade events to per-instrument
+/// pipeline tasks.
 pub async fn run_bbo_reader(
     mut raw_rx: mpsc::Receiver<(Vec<u8>, u64)>,
-    bbo_tx: mpsc::Sender<BboUpdate>,
-    trade_tx: mpsc::Sender<PipelineCommand>,
+    bbo_txs: HashMap<u32, mpsc::Sender<BboUpdate>>,
+    trade_txs: HashMap<u32, mpsc::Sender<PipelineCommand>>,
     raw_capture_tx: Option<mpsc::Sender<CaptureRecord>>,
     counters: MessageCounters,
     liveness: LivenessTracker,
-    instrument_id: u32,
+    symbol_to_id: HashMap<String, u32>,
 ) -> Result<(), RithmicError> {
     while let Some((raw_data, receive_wall_ns)) = raw_rx.recv().await {
         counters.inc_received();
@@ -69,9 +72,17 @@ pub async fn run_bbo_reader(
                     }
                 }
 
-                if let Some(update) = adapter::best_bid_offer_to_update(&bbo, receive_wall_ns) {
-                    if bbo_tx.send(update).await.is_err() {
-                        return Err(RithmicError::Channel("bbo_tx closed".into()));
+                // Route by symbol
+                let instrument_id = match bbo.symbol.as_deref().and_then(|s| symbol_to_id.get(s)) {
+                    Some(&id) => id,
+                    None => { counters.inc_processed(); continue; }
+                };
+
+                if let Some(update) = adapter::best_bid_offer_to_update(&bbo, instrument_id, receive_wall_ns) {
+                    if let Some(tx) = bbo_txs.get(&instrument_id) {
+                        if tx.send(update).await.is_err() {
+                            return Err(RithmicError::Channel("bbo_tx closed".into()));
+                        }
                     }
                 }
 
@@ -101,13 +112,17 @@ pub async fn run_bbo_reader(
                     }
                 }
 
+                // Route by symbol
+                let instrument_id = match trade.symbol.as_deref().and_then(|s| symbol_to_id.get(s)) {
+                    Some(&id) => id,
+                    None => { counters.inc_processed(); continue; }
+                };
+
                 if let Some(event) = adapter::last_trade_to_event(&trade, instrument_id, receive_wall_ns) {
-                    if trade_tx
-                        .send(PipelineCommand::Event(event))
-                        .await
-                        .is_err()
-                    {
-                        return Err(RithmicError::Channel("trade_tx closed".into()));
+                    if let Some(tx) = trade_txs.get(&instrument_id) {
+                        if tx.send(PipelineCommand::Event(event)).await.is_err() {
+                            return Err(RithmicError::Channel("trade_tx closed".into()));
+                        }
                     }
                 }
 
