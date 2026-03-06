@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod auth;
 pub mod bbo_reader;
+pub mod capture;
 pub mod client;
 pub mod config;
 pub mod connection;
