@@ -1,5 +1,5 @@
 //! Live pipeline task: feeds OrderEvents into BookBuilder, validates against
-//! BBO, emits 100ms snapshots → TimeBarBuilder → BarFeatureComputer → output.
+//! BBO, emits flow features at each F_LAST batch boundary.
 //!
 //! Handles ClearBook commands during snapshot recovery: resets the book
 //! builder and suppresses BBO validation until BOTH conditions are met:
@@ -20,10 +20,6 @@
 use std::time::SystemTime;
 
 use book_builder::BookBuilder;
-use bars::TimeBarBuilder;
-use bars::BarBuilder;
-use common::book::SNAPSHOT_INTERVAL_NS;
-use features::{BarFeatureComputer, BarFeatureRow};
 use tokio::sync::mpsc;
 
 use crate::counters::MessageCounters;
@@ -184,12 +180,7 @@ impl BboRingBuffer {
 /// Run the pipeline task.
 ///
 /// Receives PipelineCommands (OrderEvents + ClearBook signals) and BboUpdates,
-/// feeds them through:
-///   BookBuilder → 100ms snapshots → TimeBarBuilder(5s) → BarFeatureComputer → output
-///
-/// At each batch boundary (flags & 0x80), logs a `bbo_check` event comparing
-/// book top-of-book against the best-match BBO from the ring buffer.
-/// Logs latency histograms every 10s.
+/// feeds them through BookBuilder → flow features on each F_LAST boundary.
 const MAX_POST_INITIAL_RECOVERIES: u32 = 10;
 
 pub async fn run_pipeline(
@@ -200,32 +191,19 @@ pub async fn run_pipeline(
     health: HealthLogger,
     counters: MessageCounters,
     instrument_id: u32,
-    tick_size: f64,
+    _tick_size: f64,
 ) -> Result<(), RithmicError> {
     let mut book = BookBuilder::new(instrument_id);
-    let mut bar_builder = TimeBarBuilder::new(5); // 5-second bars
-    let mut feature_computer = BarFeatureComputer::with_tick_size(tick_size as f32);
 
     let mut bbo_ring = BboRingBuffer::new();
     // Tick size in fixed-point for computing tick deltas
-    let tick_size_fixed = crate::adapter::price_to_fixed(tick_size);
-    let mut last_snapshot_boundary: u64 = 0;
+    let tick_size_fixed = crate::adapter::price_to_fixed(_tick_size);
 
     // Recovery gating: suppresses BBO validation after ClearBook until
     // SnapshotComplete is received AND at least one fresh BBO arrives.
-    // After re-enable, a warmup period lets the DBO stream catch up with
-    // the BBO feed before strict validation begins.
-    //
-    // Start in recovery so the initial snapshot (116+161) must complete
-    // before BBO validation is enabled.  The dispatcher starts in
-    // LoadingSnapshot state and sends SnapshotComplete after 161 — no
-    // ClearBook is sent at startup, so we initialise the flags manually.
     let mut snapshot_complete_received: bool = false;
     let mut recovery_bbo_received: bool = false;
     let mut in_recovery: bool = true;
-    // Tracks whether the initial startup snapshot has completed.
-    // Post-initial recoveries (triggered by divergences) are counted separately
-    // for degradation detection.
     let mut initial_snapshot_done: bool = false;
     let mut post_initial_recoveries: u32 = 0;
     // Latency histograms
@@ -280,12 +258,9 @@ pub async fn run_pipeline(
                     PipelineCommand::ClearBook => {
                         eprintln!("[pipeline] ClearBook received — resetting book builder");
                         book = BookBuilder::new(instrument_id);
-                        last_snapshot_boundary = 0;
                         in_recovery = true;
                         snapshot_complete_received = false;
                         recovery_bbo_received = false;
-                        // Don't reset bar_builder/feature_computer — they accumulate
-                        // across the session and a brief gap shouldn't lose bar history.
                     }
 
                     PipelineCommand::SnapshotComplete => {
@@ -317,8 +292,6 @@ pub async fn run_pipeline(
                             }
                         }
 
-                        // Re-enable validation only when snapshot is done AND
-                        // a fresh BBO has arrived post-clear.
                         if in_recovery && recovery_bbo_received {
                             in_recovery = false;
                             eprintln!("[pipeline] BBO validation re-enabled (snapshot complete + BBO received)");
@@ -364,7 +337,7 @@ pub async fn run_pipeline(
                             event.flags,
                         );
 
-                        // On batch boundary: validate BBO + emit snapshots
+                        // On batch boundary: validate BBO + emit flow features
                         if is_batch_end {
                             if initial_snapshot_done {
                                 if let (Some(bb), Some(ba)) =
@@ -415,30 +388,17 @@ pub async fn run_pipeline(
                                 }
                             }
 
-                            // Emit 100ms snapshots
-                            if last_snapshot_boundary == 0 {
-                                last_snapshot_boundary = (ts_event / SNAPSHOT_INTERVAL_NS) * SNAPSHOT_INTERVAL_NS;
-                            }
-
-                            let next_boundary = last_snapshot_boundary + SNAPSHOT_INTERVAL_NS;
-                            if ts_event >= next_boundary {
-                                let snapshots = book.emit_snapshots(last_snapshot_boundary, ts_event);
-                                last_snapshot_boundary = (ts_event / SNAPSHOT_INTERVAL_NS) * SNAPSHOT_INTERVAL_NS;
-
-                                for snap in &snapshots {
-                                    if let Some(bar) = bar_builder.on_snapshot(snap) {
-                                        let row = feature_computer.update(&bar);
-                                        let output = FeatureOutput {
-                                            timestamp: bar.close_ts,
-                                            features: extract_features(&row),
-                                        };
-                                        if output_tx.send(output).await.is_err() {
-                                            return Err(RithmicError::Channel(
-                                                "output_tx closed".into(),
-                                            ));
-                                        }
-                                    }
-                                }
+                            // Emit flow features at every batch boundary
+                            let flow = book.current_flow_state();
+                            let features = flow.to_features();
+                            let output = FeatureOutput {
+                                timestamp: ts_event,
+                                features: features.iter().map(|&f| f as f64).collect(),
+                            };
+                            if output_tx.send(output).await.is_err() {
+                                return Err(RithmicError::Channel(
+                                    "output_tx closed".into(),
+                                ));
                             }
                         }
                     }
@@ -487,30 +447,4 @@ pub async fn run_pipeline(
             }
         }
     }
-}
-
-/// Extract the 20 core features from a BarFeatureRow as f64.
-fn extract_features(row: &BarFeatureRow) -> Vec<f64> {
-    vec![
-        row.book_imbalance_1 as f64,
-        row.book_imbalance_3 as f64,
-        row.book_imbalance_5 as f64,
-        row.book_imbalance_10 as f64,
-        row.weighted_imbalance as f64,
-        row.spread as f64,
-        row.net_volume as f64,
-        row.volume_imbalance as f64,
-        row.trade_count as f64,
-        row.avg_trade_size as f64,
-        row.vwap_distance as f64,
-        row.return_1 as f64,
-        row.return_5 as f64,
-        row.volatility_20 as f64,
-        row.volatility_50 as f64,
-        row.momentum as f64,
-        row.high_low_range_20 as f64,
-        row.volume_surprise as f64,
-        row.cancel_add_ratio as f64,
-        row.message_rate as f64,
-    ]
 }

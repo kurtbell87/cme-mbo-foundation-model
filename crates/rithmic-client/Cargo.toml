@@ -6,8 +6,6 @@ edition.workspace = true
 [dependencies]
 common = { workspace = true }
 book-builder = { workspace = true }
-bars = { workspace = true }
-features = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }

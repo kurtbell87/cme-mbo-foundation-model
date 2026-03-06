@@ -1,8 +1,0 @@
-[package]
-name = "models"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-common = { workspace = true }
-thiserror = { workspace = true }
