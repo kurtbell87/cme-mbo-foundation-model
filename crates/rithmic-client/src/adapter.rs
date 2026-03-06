@@ -25,6 +25,11 @@ pub struct InstrumentConfig {
 pub struct OrderEvent {
     /// Event timestamp in nanoseconds (exchange time preferred).
     pub ts_event: u64,
+    /// Gateway timestamp in nanoseconds (ssboe + usecs).
+    /// Always extracted when available, even when ts_event uses exchange time.
+    pub gateway_ts_ns: u64,
+    /// Local wall-clock at WebSocket receive (nanos since UNIX epoch).
+    pub receive_wall_ns: u64,
     /// Numeric order ID (mapped from exchange_order_id string).
     pub order_id: u64,
     /// Instrument identifier.
@@ -46,8 +51,10 @@ pub struct OrderEvent {
 /// BBO update with i64 fixed-point prices.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BboUpdate {
-    /// Timestamp in nanoseconds.
+    /// Timestamp in nanoseconds (gateway time — BBO has no exchange timestamp).
     pub ts_ns: u64,
+    /// Local wall-clock at WebSocket receive (nanos since UNIX epoch).
+    pub receive_wall_ns: u64,
     pub bid_price: i64,
     pub bid_size: i32,
     /// Implied/synthetic bid quantity from calendar spreads (0 = outright only).
@@ -149,6 +156,7 @@ pub fn depth_by_order_to_events(
     msg: &rti::DepthByOrder,
     instrument_id: u32,
     order_id_map: &mut OrderIdMap,
+    receive_wall_ns: u64,
 ) -> Vec<OrderEvent> {
     let update_types = msg.update_type.as_deref().unwrap_or(&[]);
     let transaction_types = msg.transaction_type.as_deref().unwrap_or(&[]);
@@ -165,6 +173,13 @@ pub fn depth_by_order_to_events(
     let ts_event = if let (Some(ss), Some(ns)) = (msg.source_ssboe, msg.source_nsecs) {
         exchange_ts_ns(ss, ns)
     } else if let (Some(ss), Some(us)) = (msg.ssboe, msg.usecs) {
+        gateway_ts_ns(ss, us)
+    } else {
+        0
+    };
+
+    // Always extract gateway timestamp (even when exchange ts is available)
+    let gw_ts = if let (Some(ss), Some(us)) = (msg.ssboe, msg.usecs) {
         gateway_ts_ns(ss, us)
     } else {
         0
@@ -203,6 +218,8 @@ pub fn depth_by_order_to_events(
 
         events.push(OrderEvent {
             ts_event,
+            gateway_ts_ns: gw_ts,
+            receive_wall_ns,
             order_id,
             instrument_id,
             action,
@@ -234,6 +251,7 @@ pub fn snapshot_response_to_events(
     msg: &rti::ResponseDepthByOrderSnapshot,
     instrument_id: u32,
     order_id_map: &mut OrderIdMap,
+    receive_wall_ns: u64,
 ) -> Vec<OrderEvent> {
     let sizes = msg.depth_size.as_deref().unwrap_or(&[]);
     let order_ids = msg.exchange_order_id.as_deref().unwrap_or(&[]);
@@ -275,6 +293,8 @@ pub fn snapshot_response_to_events(
 
         events.push(OrderEvent {
             ts_event,
+            gateway_ts_ns: ts_event, // snapshot uses gateway time for ts_event already
+            receive_wall_ns,
             order_id,
             instrument_id,
             action: 'A', // snapshot entries are always Add
@@ -297,6 +317,7 @@ pub fn snapshot_response_to_events(
 pub fn last_trade_to_event(
     msg: &rti::LastTrade,
     instrument_id: u32,
+    receive_wall_ns: u64,
 ) -> Option<OrderEvent> {
     let price_f64 = msg.trade_price?;
     let size = msg.trade_size? as u32;
@@ -305,6 +326,13 @@ pub fn last_trade_to_event(
     let ts_event = if let (Some(ss), Some(ns)) = (msg.source_ssboe, msg.source_nsecs) {
         exchange_ts_ns(ss, ns)
     } else if let (Some(ss), Some(us)) = (msg.ssboe, msg.usecs) {
+        gateway_ts_ns(ss, us)
+    } else {
+        0
+    };
+
+    // Always extract gateway timestamp
+    let gw_ts = if let (Some(ss), Some(us)) = (msg.ssboe, msg.usecs) {
         gateway_ts_ns(ss, us)
     } else {
         0
@@ -319,6 +347,8 @@ pub fn last_trade_to_event(
 
     Some(OrderEvent {
         ts_event,
+        gateway_ts_ns: gw_ts,
+        receive_wall_ns,
         order_id: 0, // trades don't have a persistent order_id
         instrument_id,
         action: 'T',
@@ -335,7 +365,7 @@ pub fn last_trade_to_event(
 // =========================================================================
 
 /// Convert a BestBidOffer (151) message into a BboUpdate.
-pub fn best_bid_offer_to_update(msg: &rti::BestBidOffer) -> Option<BboUpdate> {
+pub fn best_bid_offer_to_update(msg: &rti::BestBidOffer, receive_wall_ns: u64) -> Option<BboUpdate> {
     let bid_price = msg.bid_price?;
     let ask_price = msg.ask_price?;
 
@@ -347,6 +377,7 @@ pub fn best_bid_offer_to_update(msg: &rti::BestBidOffer) -> Option<BboUpdate> {
 
     Some(BboUpdate {
         ts_ns,
+        receive_wall_ns,
         bid_price: price_to_fixed(bid_price),
         bid_size: msg.bid_size.unwrap_or(0),
         bid_implicit_size: msg.bid_implicit_size.unwrap_or(0),
@@ -475,7 +506,7 @@ mod tests {
         };
 
         let mut oid_map = OrderIdMap::new();
-        let events = depth_by_order_to_events(&msg, 1, &mut oid_map);
+        let events = depth_by_order_to_events(&msg, 1, &mut oid_map, 9999);
 
         assert_eq!(events.len(), 3);
 
@@ -485,6 +516,9 @@ mod tests {
         assert_eq!(events[0].price, 5_000_250_000_000);
         assert_eq!(events[0].size, 10);
         assert_eq!(events[0].flags, 0); // not last
+        assert_eq!(events[0].receive_wall_ns, 9999);
+        // gateway_ts_ns always extracted
+        assert_eq!(events[0].gateway_ts_ns, 1_700_000_000_500_000_000);
 
         // Second event: NEW SELL
         assert_eq!(events[1].action, 'A');
@@ -516,7 +550,7 @@ mod tests {
         };
 
         let mut oid_map = OrderIdMap::new();
-        let events = depth_by_order_to_events(&msg, 1, &mut oid_map);
+        let events = depth_by_order_to_events(&msg, 1, &mut oid_map, 0);
         // Should use exchange timestamp (source_ssboe + source_nsecs)
         assert_eq!(events[0].ts_event, 1_700_000_000_123_456_789);
     }
@@ -538,7 +572,7 @@ mod tests {
         };
 
         let mut oid_map = OrderIdMap::new();
-        let events = depth_by_order_to_events(&msg, 1, &mut oid_map);
+        let events = depth_by_order_to_events(&msg, 1, &mut oid_map, 0);
         // Should fall back to gateway timestamp
         assert_eq!(events[0].ts_event, 1_700_000_000_500_000_000);
     }
@@ -550,7 +584,7 @@ mod tests {
             ..Default::default()
         };
         let mut oid_map = OrderIdMap::new();
-        let events = depth_by_order_to_events(&msg, 1, &mut oid_map);
+        let events = depth_by_order_to_events(&msg, 1, &mut oid_map, 0);
         assert!(events.is_empty());
     }
 
@@ -569,7 +603,7 @@ mod tests {
         };
 
         let mut oid_map = OrderIdMap::new();
-        let events = depth_by_order_to_events(&msg, 1, &mut oid_map);
+        let events = depth_by_order_to_events(&msg, 1, &mut oid_map, 0);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].action, 'M');
         assert_eq!(events[0].side, 'A');
@@ -593,7 +627,7 @@ mod tests {
             source_nsecs: Some(499000123),
         };
 
-        let event = last_trade_to_event(&msg, 1).unwrap();
+        let event = last_trade_to_event(&msg, 1, 7777).unwrap();
         assert_eq!(event.action, 'T');
         assert_eq!(event.side, 'B');
         assert_eq!(event.price, 5_000_250_000_000);
@@ -601,6 +635,8 @@ mod tests {
         assert_eq!(event.flags, 0x80); // trades always F_LAST
         assert_eq!(event.order_id, 0); // trades don't have order_id
         assert_eq!(event.ts_event, 1_700_000_000_499_000_123);
+        assert_eq!(event.receive_wall_ns, 7777);
+        assert_eq!(event.gateway_ts_ns, 1_700_000_000_500_000_000);
     }
 
     #[test]
@@ -615,7 +651,7 @@ mod tests {
             ..Default::default()
         };
 
-        let event = last_trade_to_event(&msg, 1).unwrap();
+        let event = last_trade_to_event(&msg, 1, 0).unwrap();
         assert_eq!(event.side, 'A');
     }
 
@@ -627,7 +663,7 @@ mod tests {
             trade_size: Some(1),
             ..Default::default()
         };
-        assert!(last_trade_to_event(&msg, 1).is_none());
+        assert!(last_trade_to_event(&msg, 1, 0).is_none());
     }
 
     #[test]
@@ -645,12 +681,13 @@ mod tests {
             ..Default::default()
         };
 
-        let update = best_bid_offer_to_update(&msg).unwrap();
+        let update = best_bid_offer_to_update(&msg, 5555).unwrap();
         assert_eq!(update.bid_price, 5_000_250_000_000);
         assert_eq!(update.bid_size, 42);
         assert_eq!(update.ask_price, 5_000_500_000_000);
         assert_eq!(update.ask_size, 37);
         assert_eq!(update.ts_ns, 1_700_000_000_123_456_000);
+        assert_eq!(update.receive_wall_ns, 5555);
     }
 
     #[test]
@@ -661,7 +698,7 @@ mod tests {
             ask_price: Some(5000.50),
             ..Default::default()
         };
-        assert!(best_bid_offer_to_update(&msg).is_none());
+        assert!(best_bid_offer_to_update(&msg, 0).is_none());
     }
 
     #[test]
@@ -682,7 +719,7 @@ mod tests {
             usecs: Some(0),
             ..Default::default()
         };
-        let bbo_update = best_bid_offer_to_update(&bbo_msg).unwrap();
+        let bbo_update = best_bid_offer_to_update(&bbo_msg, 0).unwrap();
 
         assert_eq!(dbo_fixed, bbo_update.bid_price);
         assert_eq!(dbo_fixed, bbo_update.ask_price);

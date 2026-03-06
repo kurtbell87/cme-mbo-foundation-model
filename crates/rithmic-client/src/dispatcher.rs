@@ -32,7 +32,6 @@
 //!   4. Enter LoadingSnapshot — same flow as cold start
 
 use std::collections::VecDeque;
-use std::time::Instant;
 
 use prost::Message;
 use tokio::sync::mpsc;
@@ -105,7 +104,7 @@ enum DispatcherState {
 /// DBO sub ack (118), heartbeats, rejects, and logouts.
 /// BBO and trades are handled by the BBO reader on a separate connection.
 pub async fn run_dispatcher(
-    mut raw_msg_rx: mpsc::Receiver<Vec<u8>>,
+    mut raw_msg_rx: mpsc::Receiver<(Vec<u8>, u64)>,
     order_event_tx: mpsc::Sender<PipelineCommand>,
     ws_cmd_tx: mpsc::Sender<Vec<u8>>,
     raw_capture_tx: Option<mpsc::Sender<CaptureRecord>>,
@@ -124,18 +123,15 @@ pub async fn run_dispatcher(
     // partial pre-snapshot book state.
     let mut state = DispatcherState::Streaming;
     let mut dbo_streak: u64 = 0;
-    let epoch = Instant::now();
 
     /// Minimum consecutive DBO messages before gap detection activates.
     /// DBO sequences are global (all symbols), so small gaps between
     /// per-symbol messages are normal during subscription warmup.
     const GAP_DETECTION_MIN_STREAK: u64 = 50;
 
-    while let Some(raw_data) = raw_msg_rx.recv().await {
+    while let Some((raw_data, receive_wall_ns)) = raw_msg_rx.recv().await {
         counters.inc_received();
         liveness.record_inbound();
-
-        let receive_ns = epoch.elapsed().as_nanos() as u64;
 
         // Build a fake WsMessage::Binary to reuse decode_ws_payload
         let ws_msg = tokio_tungstenite::tungstenite::protocol::Message::Binary(raw_data.clone().into());
@@ -165,7 +161,7 @@ pub async fn run_dispatcher(
                         sequence_number: dbo.sequence_number,
                         exchange_ts_ns: extract_exchange_ts(&dbo),
                         gateway_ts_ns: extract_gateway_ts_dbo(&dbo),
-                        receive_ns,
+                        receive_ns: receive_wall_ns,
                         symbol: dbo.symbol.clone(),
                         raw_bytes: payload.to_vec(),
                     };
@@ -228,7 +224,7 @@ pub async fn run_dispatcher(
                         }
 
                         // Normal path: convert and forward
-                        let events = adapter::depth_by_order_to_events(&dbo, instrument_id, &mut order_id_map);
+                        let events = adapter::depth_by_order_to_events(&dbo, instrument_id, &mut order_id_map, receive_wall_ns);
                         for event in events {
                             if order_event_tx.send(PipelineCommand::Event(event)).await.is_err() {
                                 return Err(RithmicError::Channel("order_event_tx closed".into()));
@@ -310,7 +306,7 @@ pub async fn run_dispatcher(
                                         continue;
                                     }
                                     let events = adapter::depth_by_order_to_events(
-                                        &dbo, instrument_id, &mut order_id_map,
+                                        &dbo, instrument_id, &mut order_id_map, 0,
                                     );
                                     for event in events {
                                         if order_event_tx
@@ -392,7 +388,7 @@ pub async fn run_dispatcher(
                 // Convert snapshot entries to OrderEvents and send to pipeline.
                 // The pipeline is in recovery mode (in_recovery=true), so BBO
                 // validation is suppressed while these are applied.
-                let events = adapter::snapshot_response_to_events(&snap, instrument_id, &mut order_id_map);
+                let events = adapter::snapshot_response_to_events(&snap, instrument_id, &mut order_id_map, 0);
                 for event in events {
                     if order_event_tx.send(PipelineCommand::Event(event)).await.is_err() {
                         return Err(RithmicError::Channel("order_event_tx closed".into()));
@@ -436,7 +432,7 @@ pub async fn run_dispatcher(
                                     continue;
                                 }
                                 let events = adapter::depth_by_order_to_events(
-                                    &dbo, instrument_id, &mut order_id_map,
+                                    &dbo, instrument_id, &mut order_id_map, 0,
                                 );
                                 for event in events {
                                     if order_event_tx
