@@ -21,7 +21,7 @@ use crate::rti;
 /// Receives raw WebSocket binary messages from the BBO connection,
 /// decodes them, and routes BBO updates and trade events to the pipeline.
 pub async fn run_bbo_reader(
-    mut raw_rx: mpsc::Receiver<Vec<u8>>,
+    mut raw_rx: mpsc::Receiver<(Vec<u8>, u64)>,
     bbo_tx: mpsc::Sender<BboUpdate>,
     trade_tx: mpsc::Sender<PipelineCommand>,
     raw_capture_tx: Option<mpsc::Sender<CaptureRecord>>,
@@ -29,14 +29,9 @@ pub async fn run_bbo_reader(
     liveness: LivenessTracker,
     instrument_id: u32,
 ) -> Result<(), RithmicError> {
-    use std::time::Instant;
-    let epoch = Instant::now();
-
-    while let Some(raw_data) = raw_rx.recv().await {
+    while let Some((raw_data, receive_wall_ns)) = raw_rx.recv().await {
         counters.inc_received();
         liveness.record_inbound();
-
-        let receive_ns = epoch.elapsed().as_nanos() as u64;
 
         let ws_msg =
             tokio_tungstenite::tungstenite::protocol::Message::Binary(raw_data.clone().into());
@@ -65,7 +60,7 @@ pub async fn run_bbo_reader(
                         sequence_number: None,
                         exchange_ts_ns: None,
                         gateway_ts_ns: extract_gateway_ts_bbo(&bbo),
-                        receive_ns,
+                        receive_ns: receive_wall_ns,
                         symbol: bbo.symbol.clone(),
                         raw_bytes: payload.to_vec(),
                     };
@@ -74,7 +69,7 @@ pub async fn run_bbo_reader(
                     }
                 }
 
-                if let Some(update) = adapter::best_bid_offer_to_update(&bbo) {
+                if let Some(update) = adapter::best_bid_offer_to_update(&bbo, receive_wall_ns) {
                     if bbo_tx.send(update).await.is_err() {
                         return Err(RithmicError::Channel("bbo_tx closed".into()));
                     }
@@ -97,7 +92,7 @@ pub async fn run_bbo_reader(
                         sequence_number: None,
                         exchange_ts_ns: extract_exchange_ts_trade(&trade),
                         gateway_ts_ns: extract_gateway_ts_trade(&trade),
-                        receive_ns,
+                        receive_ns: receive_wall_ns,
                         symbol: trade.symbol.clone(),
                         raw_bytes: payload.to_vec(),
                     };
@@ -106,7 +101,7 @@ pub async fn run_bbo_reader(
                     }
                 }
 
-                if let Some(event) = adapter::last_trade_to_event(&trade, instrument_id) {
+                if let Some(event) = adapter::last_trade_to_event(&trade, instrument_id, receive_wall_ns) {
                     if trade_tx
                         .send(PipelineCommand::Event(event))
                         .await

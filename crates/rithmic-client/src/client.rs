@@ -26,7 +26,7 @@
 //! single-socket approach is adequate. Two connections would eliminate the
 //! BBO-before-DBO arrival ordering inherent to a shared socket.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
@@ -151,10 +151,10 @@ impl RithmicClient {
         // ---------------------------------------------------------------
         // Create channels
         // ---------------------------------------------------------------
-        // Router → dispatcher (DBO messages)
-        let (dbo_raw_tx, dbo_raw_rx) = mpsc::channel::<Vec<u8>>(RAW_MSG_BUF);
-        // Router → BBO reader (BBO + trade messages)
-        let (bbo_raw_tx, bbo_raw_rx) = mpsc::channel::<Vec<u8>>(RAW_MSG_BUF);
+        // Router → dispatcher (DBO messages, bundled with wall-clock receive time)
+        let (dbo_raw_tx, dbo_raw_rx) = mpsc::channel::<(Vec<u8>, u64)>(RAW_MSG_BUF);
+        // Router → BBO reader (BBO + trade messages, bundled with wall-clock receive time)
+        let (bbo_raw_tx, bbo_raw_rx) = mpsc::channel::<(Vec<u8>, u64)>(RAW_MSG_BUF);
         // Dispatcher → pipeline (order events + control)
         let (pipeline_cmd_tx, pipeline_cmd_rx) = mpsc::channel::<PipelineCommand>(PIPELINE_CMD_BUF);
         // BBO reader also sends trade events to pipeline (two producers, one consumer)
@@ -191,6 +191,11 @@ impl RithmicClient {
         let read_liveness = liveness.clone();
         let ws_read_handle = tokio::spawn(async move {
             while let Some(msg_result) = ws_stream.next().await {
+                // Capture wall-clock immediately on receive
+                let receive_wall_ns = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos() as u64;
                 match msg_result {
                     Ok(msg) => {
                         read_liveness.record_inbound();
@@ -209,14 +214,14 @@ impl RithmicClient {
                             match tid {
                                 // DBO messages → dispatcher
                                 160 | 116 | 161 | 118 => {
-                                    if dbo_raw_tx.send(raw).await.is_err() {
+                                    if dbo_raw_tx.send((raw, receive_wall_ns)).await.is_err() {
                                         eprintln!("[router] dbo_raw_tx closed");
                                         break;
                                     }
                                 }
                                 // BBO + trade messages → BBO reader
                                 151 | 150 | 101 => {
-                                    if bbo_raw_tx.send(raw).await.is_err() {
+                                    if bbo_raw_tx.send((raw, receive_wall_ns)).await.is_err() {
                                         eprintln!("[router] bbo_raw_tx closed");
                                         break;
                                     }
@@ -224,18 +229,18 @@ impl RithmicClient {
                                 // Connection-level messages → both channels
                                 19 | 75 | 77 | 13 => {
                                     let raw2 = raw.clone();
-                                    if dbo_raw_tx.send(raw).await.is_err() {
+                                    if dbo_raw_tx.send((raw, receive_wall_ns)).await.is_err() {
                                         eprintln!("[router] dbo_raw_tx closed");
                                         break;
                                     }
-                                    if bbo_raw_tx.send(raw2).await.is_err() {
+                                    if bbo_raw_tx.send((raw2, receive_wall_ns)).await.is_err() {
                                         eprintln!("[router] bbo_raw_tx closed");
                                         break;
                                     }
                                 }
                                 // Unknown → dispatcher (for logging)
                                 _ => {
-                                    if dbo_raw_tx.send(raw).await.is_err() {
+                                    if dbo_raw_tx.send((raw, receive_wall_ns)).await.is_err() {
                                         eprintln!("[router] dbo_raw_tx closed");
                                         break;
                                     }

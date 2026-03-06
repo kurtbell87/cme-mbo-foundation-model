@@ -8,13 +8,16 @@
 //! After re-enable, a warmup period lets the DBO stream catch up with the
 //! BBO feed before strict validation begins.
 //!
-//! BBO validation uses two guards before triggering recovery:
-//!   1. Max-age: skip if adjusted BBO age (raw_age minus ~150ms clock offset) > 400ms.
-//!      Stale BBO means the book is MORE current — skip and reset the streak.
-//!   2. Directional-consistency: trigger recovery only after 5 consecutive same-direction
-//!      fresh divergences (book_ahead OR book_behind, not mixed).
-//! Single divergences and alternating-direction divergences are logged but do not
-//! trigger recovery — they are characteristic of the BBO-before-DBO timing race.
+//! BBO instrumentation: on every batch boundary where both book top-of-book
+//! and latest BBO exist, logs a `bbo_check` event with raw timestamps from
+//! both clock domains (exchange time for DBO, gateway time for BBO) plus
+//! price comparisons. Uses a ring buffer of recent BBOs for temporal alignment.
+//!
+//! Latency instrumentation: tracks four histogram instances measuring
+//! exchange→gateway, gateway→local, end-to-end, and feed alignment latencies.
+//! Summaries logged every 10s.
+
+use std::time::SystemTime;
 
 use book_builder::BookBuilder;
 use bars::TimeBarBuilder;
@@ -36,17 +39,157 @@ pub struct FeatureOutput {
     pub features: Vec<f64>,
 }
 
+// =========================================================================
+// LatencyHistogram — zero-alloc, fixed 12-bucket powers-of-2 from <0.5ms
+// =========================================================================
+
+/// Bucket boundaries in microseconds: <500, <1000, <2000, ..., <512000, >=512000
+const BUCKET_COUNT: usize = 12;
+const BUCKET_BOUNDS_US: [u64; BUCKET_COUNT - 1] = [
+    500, 1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 512_000,
+];
+
+struct LatencyHistogram {
+    buckets: [u64; BUCKET_COUNT],
+    count: u64,
+    sum_us: u64,
+}
+
+impl LatencyHistogram {
+    const fn new() -> Self {
+        Self {
+            buckets: [0; BUCKET_COUNT],
+            count: 0,
+            sum_us: 0,
+        }
+    }
+
+    /// Record a latency measurement in nanoseconds.
+    #[inline]
+    fn record_ns(&mut self, ns: u64) {
+        let us = ns / 1_000;
+        self.count += 1;
+        self.sum_us += us;
+        for (i, &bound) in BUCKET_BOUNDS_US.iter().enumerate() {
+            if us < bound {
+                self.buckets[i] += 1;
+                return;
+            }
+        }
+        self.buckets[BUCKET_COUNT - 1] += 1;
+    }
+
+    /// Compute percentile in microseconds (p50, p95, p99).
+    fn percentile(&self, pct: f64) -> u64 {
+        if self.count == 0 {
+            return 0;
+        }
+        let target = ((self.count as f64) * pct / 100.0).ceil() as u64;
+        let mut cumulative = 0u64;
+        for (i, &cnt) in self.buckets.iter().enumerate() {
+            cumulative += cnt;
+            if cumulative >= target {
+                if i < BUCKET_BOUNDS_US.len() {
+                    return BUCKET_BOUNDS_US[i];
+                } else {
+                    return if self.count > 0 { self.sum_us / self.count } else { 0 };
+                }
+            }
+        }
+        0
+    }
+
+    /// Drain: return (count, p50_us, p95_us, p99_us, mean_us) and reset.
+    fn drain(&mut self) -> (u64, u64, u64, u64, u64) {
+        let count = self.count;
+        if count == 0 {
+            return (0, 0, 0, 0, 0);
+        }
+        let p50 = self.percentile(50.0);
+        let p95 = self.percentile(95.0);
+        let p99 = self.percentile(99.0);
+        let mean = self.sum_us / count;
+        self.buckets = [0; BUCKET_COUNT];
+        self.count = 0;
+        self.sum_us = 0;
+        (count, p50, p95, p99, mean)
+    }
+}
+
+// =========================================================================
+// BBO Ring Buffer — fixed [Option<BboUpdate>; 8]
+// =========================================================================
+
+const BBO_RING_SIZE: usize = 8;
+
+struct BboRingBuffer {
+    buf: [Option<BboUpdate>; BBO_RING_SIZE],
+    write_idx: usize,
+}
+
+impl BboRingBuffer {
+    fn new() -> Self {
+        Self {
+            buf: Default::default(),
+            write_idx: 0,
+        }
+    }
+
+    fn push(&mut self, bbo: BboUpdate) {
+        self.buf[self.write_idx] = Some(bbo);
+        self.write_idx = (self.write_idx + 1) % BBO_RING_SIZE;
+    }
+
+    /// Find best-match BBO for a DBO event:
+    /// 1. Among BBOs with exact price match on both bid and ask, pick closest gateway ts
+    /// 2. If none match, pick closest gateway ts overall
+    /// Returns (matched_bbo, is_exact_match)
+    fn best_match(&self, book_bid: i64, book_ask: i64, dbo_gw_ts: u64) -> Option<(&BboUpdate, bool)> {
+        let mut best_exact: Option<(&BboUpdate, u64)> = None;
+        let mut best_any: Option<(&BboUpdate, u64)> = None;
+
+        for slot in &self.buf {
+            if let Some(bbo) = slot {
+                let age = if dbo_gw_ts >= bbo.ts_ns {
+                    dbo_gw_ts - bbo.ts_ns
+                } else {
+                    bbo.ts_ns - dbo_gw_ts
+                };
+
+                if best_any.is_none() || age < best_any.unwrap().1 {
+                    best_any = Some((bbo, age));
+                }
+
+                if bbo.bid_price == book_bid && bbo.ask_price == book_ask {
+                    if best_exact.is_none() || age < best_exact.unwrap().1 {
+                        best_exact = Some((bbo, age));
+                    }
+                }
+            }
+        }
+
+        if let Some((bbo, _)) = best_exact {
+            Some((bbo, true))
+        } else {
+            best_any.map(|(bbo, _)| (bbo, false))
+        }
+    }
+
+}
+
+// =========================================================================
+// Pipeline
+// =========================================================================
+
 /// Run the pipeline task.
 ///
 /// Receives PipelineCommands (OrderEvents + ClearBook signals) and BboUpdates,
 /// feeds them through:
 ///   BookBuilder → 100ms snapshots → TimeBarBuilder(5s) → BarFeatureComputer → output
 ///
-/// At each batch boundary (flags & 0x80), validates book top-of-book against
-/// the latest BBO using exact i64 comparison, subject to two guards (see module
-/// docs). Recovery is triggered only on 5 consecutive same-direction fresh
-/// divergences. The pipeline exits with BookDegraded after 3 post-initial
-/// recoveries — each recovery takes ~1–5 seconds; 3 failures = structural problem.
+/// At each batch boundary (flags & 0x80), logs a `bbo_check` event comparing
+/// book top-of-book against the best-match BBO from the ring buffer.
+/// Logs latency histograms every 10s.
 const MAX_POST_INITIAL_RECOVERIES: u32 = 10;
 
 pub async fn run_pipeline(
@@ -63,7 +206,9 @@ pub async fn run_pipeline(
     let mut bar_builder = TimeBarBuilder::new(5); // 5-second bars
     let mut feature_computer = BarFeatureComputer::with_tick_size(tick_size as f32);
 
-    let mut latest_bbo: Option<BboUpdate> = None;
+    let mut bbo_ring = BboRingBuffer::new();
+    // Tick size in fixed-point for computing tick deltas
+    let tick_size_fixed = crate::adapter::price_to_fixed(tick_size);
     let mut last_snapshot_boundary: u64 = 0;
 
     // Recovery gating: suppresses BBO validation after ClearBook until
@@ -78,31 +223,20 @@ pub async fn run_pipeline(
     let mut snapshot_complete_received: bool = false;
     let mut recovery_bbo_received: bool = false;
     let mut in_recovery: bool = true;
-    let mut post_recovery_warmup: u32 = 0;
     // Tracks whether the initial startup snapshot has completed.
     // Post-initial recoveries (triggered by divergences) are counted separately
     // for degradation detection.
     let mut initial_snapshot_done: bool = false;
     let mut post_initial_recoveries: u32 = 0;
-    // Directional-consistency state for BBO validation.
-    let mut consecutive_consistent: u32 = 0;
-    let mut last_divergence_dir: Option<&'static str> = None;
-    let mut last_divergence_ts_ns: u64 = 0;
+    // Latency histograms
+    let mut hist_exchange_to_gateway = LatencyHistogram::new();
+    let mut hist_gateway_to_local = LatencyHistogram::new();
+    let mut hist_end_to_end = LatencyHistogram::new();
+    let mut hist_feed_alignment = LatencyHistogram::new();
 
-    /// DBO batches to skip after recovery before validating.
-    /// Bridges the latency gap between snapshot end and BBO feed.
-    const POST_RECOVERY_WARMUP: u32 = 100;
-    /// Systematic DBO/BBO clock-domain offset (exchange clock vs gateway clock).
-    const CLOCK_OFFSET_NS: u64 = 150_000_000; // 150ms
-    /// Skip validation if adjusted BBO age exceeds this (book is more current than BBO).
-    const MAX_BBO_AGE_NS: u64 = 400_000_000; // 400ms
-    /// Trigger recovery after this many consecutive same-direction fresh divergences.
-    /// Currently unused — BBO-triggered recovery is disabled (see comment below).
-    /// Kept for re-enable with two-connection architecture.
-    #[allow(dead_code)]
-    const DIVERGENCE_RECOVERY_THRESHOLD: u32 = 20;
-    /// Reset the consistency streak if no divergence seen within this window.
-    const DIVERGENCE_RESET_WINDOW_NS: u64 = 5_000_000_000; // 5s
+    // Periodic summary timer
+    let mut summary_interval = tokio::time::interval(std::time::Duration::from_secs(10));
+    summary_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         tokio::select! {
@@ -110,14 +244,19 @@ pub async fn run_pipeline(
             bbo = bbo_rx.recv() => {
                 match bbo {
                     Some(update) => {
-                        latest_bbo = Some(update);
+                        // Record gateway→local latency for BBO
+                        if update.receive_wall_ns > 0 && update.ts_ns > 0 {
+                            if update.receive_wall_ns > update.ts_ns {
+                                hist_gateway_to_local.record_ns(update.receive_wall_ns - update.ts_ns);
+                            }
+                        }
+                        bbo_ring.push(update);
                         if in_recovery {
                             recovery_bbo_received = true;
                             // Re-enable if snapshot already completed
                             if snapshot_complete_received {
                                 in_recovery = false;
-                                post_recovery_warmup = POST_RECOVERY_WARMUP;
-                                eprintln!("[pipeline] BBO validation re-enabled (snapshot complete + BBO received, warmup={POST_RECOVERY_WARMUP})");
+                                eprintln!("[pipeline] BBO validation re-enabled (snapshot complete + BBO received)");
                             }
                         }
                     }
@@ -182,14 +321,36 @@ pub async fn run_pipeline(
                         // a fresh BBO has arrived post-clear.
                         if in_recovery && recovery_bbo_received {
                             in_recovery = false;
-                            post_recovery_warmup = POST_RECOVERY_WARMUP;
-                            eprintln!("[pipeline] BBO validation re-enabled (snapshot complete + BBO received, warmup={POST_RECOVERY_WARMUP})");
+                            eprintln!("[pipeline] BBO validation re-enabled (snapshot complete + BBO received)");
                         }
                     }
 
                     PipelineCommand::Event(event) => {
                         let is_batch_end = event.flags & 0x80 != 0;
                         let ts_event = event.ts_event;
+                        let gateway_ts = event.gateway_ts_ns;
+                        let receive_wall = event.receive_wall_ns;
+
+                        // Record latency: exchange→gateway (DBO only, when both timestamps available)
+                        if event.action != 'T' && ts_event > 0 && gateway_ts > 0 && gateway_ts > ts_event {
+                            hist_exchange_to_gateway.record_ns(gateway_ts - ts_event);
+                        }
+
+                        // Record latency: gateway→local
+                        if receive_wall > 0 && gateway_ts > 0 && receive_wall > gateway_ts {
+                            hist_gateway_to_local.record_ns(receive_wall - gateway_ts);
+                        }
+
+                        // Record latency: end-to-end (exchange→now)
+                        if ts_event > 0 && receive_wall > 0 {
+                            let now_ns = SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_nanos() as u64;
+                            if now_ns > ts_event {
+                                hist_end_to_end.record_ns(now_ns - ts_event);
+                            }
+                        }
 
                         // Feed into book builder
                         book.process_event(
@@ -205,112 +366,51 @@ pub async fn run_pipeline(
 
                         // On batch boundary: validate BBO + emit snapshots
                         if is_batch_end {
-                            if !in_recovery {
-                                if post_recovery_warmup > 0 {
-                                    post_recovery_warmup -= 1;
-                                } else if let Some(ref bbo) = latest_bbo {
-                                    let raw_age_ns = ts_event.saturating_sub(bbo.ts_ns);
-                                    let adjusted_age_ns = raw_age_ns.saturating_sub(CLOCK_OFFSET_NS);
-
-                                    if adjusted_age_ns > MAX_BBO_AGE_NS {
-                                        // BBO is stale — book is more current; skip validation.
-                                        health.log("validation_skipped", serde_json::json!({
-                                            "raw_age_us": raw_age_ns / 1_000,
-                                            "adjusted_age_ms": adjusted_age_ns / 1_000_000,
-                                            "dbo_ts": ts_event,
-                                            "bbo_ts": bbo.ts_ns,
-                                        }));
-                                        // Stale BBO interrupts any consistency streak.
-                                        consecutive_consistent = 0;
-                                        last_divergence_dir = None;
-                                    } else if let (Some(bb), Some(ba)) =
-                                        (book.best_bid_price(), book.best_ask_price())
-                                    {
+                            if initial_snapshot_done {
+                                if let (Some(bb), Some(ba)) =
+                                    (book.best_bid_price(), book.best_ask_price())
+                                {
+                                    if let Some((bbo, is_exact)) = bbo_ring.best_match(bb, ba, gateway_ts) {
                                         counters.inc_bbo_validations();
-                                        if bb != bbo.bid_price || ba != bbo.ask_price {
-                                            counters.inc_bbo_divergences();
 
-                                            // Classify divergence direction.
-                                            let bid_ahead = bb > bbo.bid_price;
-                                            let ask_ahead = ba > bbo.ask_price;
-                                            let bid_behind = bb < bbo.bid_price;
-                                            let ask_behind = ba < bbo.ask_price;
-                                            let dir: &'static str = match (
-                                                bid_ahead || ask_ahead,
-                                                bid_behind || ask_behind,
-                                            ) {
-                                                (true, false) => "book_ahead",
-                                                (false, true) => "book_behind",
-                                                _ => "mixed",
-                                            };
-
-                                            // Time-window reset: gap > 5s resets streak.
-                                            if last_divergence_ts_ns > 0
-                                                && ts_event.saturating_sub(last_divergence_ts_ns)
-                                                    > DIVERGENCE_RESET_WINDOW_NS
-                                            {
-                                                consecutive_consistent = 0;
-                                                last_divergence_dir = None;
-                                            }
-
-                                            // Update streak: only same non-mixed direction counts.
-                                            let streak_continues = dir != "mixed"
-                                                && last_divergence_dir.map_or(true, |d| d == dir);
-                                            if streak_continues {
-                                                consecutive_consistent += 1;
-                                                last_divergence_dir = Some(dir);
-                                            } else {
-                                                // Direction flip or mixed — reset streak.
-                                                consecutive_consistent = if dir != "mixed" { 1 } else { 0 };
-                                                last_divergence_dir = if dir != "mixed" { Some(dir) } else { None };
-                                            }
-                                            last_divergence_ts_ns = ts_event;
-
-                                            let raw_age_us = raw_age_ns / 1_000;
-                                            let adjusted_age_ms = adjusted_age_ns / 1_000_000;
-                                            health.log("divergence", serde_json::json!({
-                                                "book_bid": bb,
-                                                "book_ask": ba,
-                                                "bbo_bid": bbo.bid_price,
-                                                "bbo_ask": bbo.ask_price,
-                                                "bbo_bid_size": bbo.bid_size,
-                                                "bbo_ask_size": bbo.ask_size,
-                                                "bbo_bid_implicit": bbo.bid_implicit_size,
-                                                "bbo_ask_implicit": bbo.ask_implicit_size,
-                                                "bbo_ts": bbo.ts_ns,
-                                                "dbo_ts": ts_event,
-                                                "raw_age_us": raw_age_us,
-                                                "adjusted_age_ms": adjusted_age_ms,
-                                                "direction": dir,
-                                                "consecutive_consistent": consecutive_consistent,
-                                            }));
-                                            eprintln!(
-                                                "[pipeline] BBO divergence: book bid={} ask={}, \
-                                                 BBO bid={} ask={} (adj_age={}ms dir={} streak={})",
-                                                bb, ba, bbo.bid_price, bbo.ask_price,
-                                                adjusted_age_ms, dir, consecutive_consistent
-                                            );
-
-                                            // BBO-triggered recovery is disabled. On a single
-                                            // socket, BBO frequently arrives before the DBO that
-                                            // caused the price change, creating persistent timing-
-                                            // race divergences (~48% rate) even with gaps=0.
-                                            // Recovery is handled by sequence gap detection in the
-                                            // dispatcher. BBO divergences are logged as diagnostics.
-                                            //
-                                            // To re-enable (e.g., with two-connection architecture):
-                                            // uncomment the block below and set threshold appropriately.
-                                            //
-                                            // if consecutive_consistent >= DIVERGENCE_RECOVERY_THRESHOLD
-                                            //     && dir == "book_behind"
-                                            // {
-                                            //     let _ = recovery_tx.try_send(());
-                                            // }
+                                        let feed_age_ns = if gateway_ts >= bbo.ts_ns {
+                                            gateway_ts - bbo.ts_ns
                                         } else {
-                                            // Clean validation — reset consistency streak.
-                                            consecutive_consistent = 0;
-                                            last_divergence_dir = None;
+                                            bbo.ts_ns - gateway_ts
+                                        };
+
+                                        hist_feed_alignment.record_ns(feed_age_ns);
+
+                                        let bid_delta = if tick_size_fixed != 0 {
+                                            (bb - bbo.bid_price) / tick_size_fixed
+                                        } else {
+                                            bb - bbo.bid_price
+                                        };
+                                        let ask_delta = if tick_size_fixed != 0 {
+                                            (ba - bbo.ask_price) / tick_size_fixed
+                                        } else {
+                                            ba - bbo.ask_price
+                                        };
+
+                                        if !is_exact {
+                                            counters.inc_bbo_divergences();
                                         }
+
+                                        health.log("bbo_check", serde_json::json!({
+                                            "book_bid": bb,
+                                            "book_ask": ba,
+                                            "bbo_bid": bbo.bid_price,
+                                            "bbo_ask": bbo.ask_price,
+                                            "bbo_bid_size": bbo.bid_size,
+                                            "bbo_ask_size": bbo.ask_size,
+                                            "dbo_ts": ts_event,
+                                            "dbo_gw_ts": gateway_ts,
+                                            "bbo_ts": bbo.ts_ns,
+                                            "match": is_exact,
+                                            "feed_age_ns": feed_age_ns,
+                                            "bid_delta_ticks": bid_delta,
+                                            "ask_delta_ticks": ask_delta,
+                                        }));
                                     }
                                 }
                             }
@@ -342,6 +442,47 @@ pub async fn run_pipeline(
                             }
                         }
                     }
+                }
+            }
+
+            _ = summary_interval.tick() => {
+                // Drain all histograms and log summaries
+                let (e2e_n, e2e_p50, e2e_p95, e2e_p99, e2e_mean) = hist_end_to_end.drain();
+                let (exg_n, exg_p50, exg_p95, exg_p99, _) = hist_exchange_to_gateway.drain();
+                let (g2l_n, g2l_p50, g2l_p95, g2l_p99, _) = hist_gateway_to_local.drain();
+                let (fa_n, fa_p50, fa_p95, fa_p99, _) = hist_feed_alignment.drain();
+
+                if e2e_n > 0 {
+                    health.log("latency_end_to_end", serde_json::json!({
+                        "n": e2e_n,
+                        "p50_us": e2e_p50,
+                        "p95_us": e2e_p95,
+                        "p99_us": e2e_p99,
+                        "mean_us": e2e_mean,
+                    }));
+                    eprintln!(
+                        "[latency] e2e: n={} p50={}us p95={}us p99={}us | exg→gw: n={} p50={}us p95={}us | gw→local: n={} p50={}us p95={}us | feed_align: n={} p50={}us p95={}us",
+                        e2e_n, e2e_p50, e2e_p95, e2e_p99,
+                        exg_n, exg_p50, exg_p95,
+                        g2l_n, g2l_p50, g2l_p95,
+                        fa_n, fa_p50, fa_p95,
+                    );
+                }
+
+                if exg_n > 0 {
+                    health.log("latency_exchange_to_gateway", serde_json::json!({
+                        "n": exg_n, "p50_us": exg_p50, "p95_us": exg_p95, "p99_us": exg_p99,
+                    }));
+                }
+                if g2l_n > 0 {
+                    health.log("latency_gateway_to_local", serde_json::json!({
+                        "n": g2l_n, "p50_us": g2l_p50, "p95_us": g2l_p95, "p99_us": g2l_p99,
+                    }));
+                }
+                if fa_n > 0 {
+                    health.log("latency_feed_alignment", serde_json::json!({
+                        "n": fa_n, "p50_us": fa_p50, "p95_us": fa_p95, "p99_us": fa_p99,
+                    }));
                 }
             }
         }
