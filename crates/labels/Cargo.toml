@@ -1,7 +1,0 @@
-[package]
-name = "labels"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-common = { workspace = true }

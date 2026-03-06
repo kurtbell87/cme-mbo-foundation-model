@@ -3,8 +3,7 @@
 //! Computes 42 LOB features from a `CommittedState` + recent event window,
 //! plus 2 geometry inputs (T, S) for a total of 44 model dimensions.
 
-use book_builder::CommittedState;
-use common::book::BOOK_DEPTH;
+use book_builder::{CommittedState, BOOK_DEPTH};
 use common::event::MBOEvent;
 
 /// Total number of LOB features (excluding T, S geometry inputs).

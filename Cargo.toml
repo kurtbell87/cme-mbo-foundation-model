@@ -8,28 +8,16 @@ resolver = "2"
 members = [
     "crates/common",
     "crates/book-builder",
-    "crates/bars",
-    "crates/features",
-    "crates/labels",
     "crates/backtest",
-    "crates/analysis",
-    "crates/models",
     "crates/databento-ingest",
     "crates/rithmic-client",
     "crates/xgboost-ffi",
     "crates/event-features",
     "crates/event-labels",
     "crates/flow-features",
-    "tools/bar-feature-export",
-    "tools/oracle-expectancy",
-    "tools/subordination-test",
-    "tools/info-decomposition",
-    "tools/parity-test",
-    "tools/cpcv-backtest",
     "tools/rithmic-live",
     "tools/event-export",
     "tools/event-backtest",
-    "tools/gate-test",
 ]
 
 [workspace.package]
@@ -42,12 +30,7 @@ license = "MIT"
 # Internal crates
 common = { path = "crates/common" }
 book-builder = { path = "crates/book-builder" }
-bars = { path = "crates/bars" }
-features = { path = "crates/features" }
-labels = { path = "crates/labels" }
 backtest = { path = "crates/backtest" }
-analysis = { path = "crates/analysis" }
-models = { path = "crates/models" }
 databento-ingest = { path = "crates/databento-ingest" }
 rithmic-client = { path = "crates/rithmic-client" }
 xgboost-ffi = { path = "crates/xgboost-ffi" }

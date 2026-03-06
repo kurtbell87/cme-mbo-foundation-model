@@ -1,15 +1,8 @@
 # Project Instructions — Orchestration-Kit (Greenfield)
 
-## MANDATORY: Work in a Worktree
+## Git Workflow
 
-**All work MUST begin on a new git worktree.** Never commit directly to this branch or to main.
-
-```bash
-git worktree add .worktrees/<descriptive-name> -b <branch-name> HEAD
-cd .worktrees/<descriptive-name>
-```
-
-When done, push the branch and open a PR to merge back. This keeps the main working tree clean and avoids dirty-state conflicts between sessions.
+Work directly on `main` or on a feature branch. **Do NOT create git worktrees** unless the user explicitly asks for one — nested worktrees accumulate and are painful to untangle.
 
 ## Path Convention
 
@@ -75,17 +68,6 @@ Open `http://127.0.0.1:7340` to explore runs across projects and filter by proje
 - `.kit/handoffs/completed/` — Resolved research handoffs
 - `.kit/scripts/` — Utility scripts (symlinked from orchestration-kit)
 
-## Git Worktree Setup
-
-When working in a git worktree, `orchestration-kit/` will be empty. Use `tools/worktree-init`:
-
-```bash
-git worktree add ../project-slug -b feat/my-feature main
-cd ../project-slug
-orchestration-kit/tools/worktree-init
-source .orchestration-kit.env
-```
-
 ## Process Visibility (MCP)
 
 - **`kit.active`** — List all background processes launched by the MCP server (run_id, pid, status, exit_code).
@@ -131,7 +113,7 @@ After every session that changes the codebase, update:
 ### Live Test Run Command
 
 ```bash
-# Run from the worktree root (wherever you cd'd after git worktree add)
+# Run from the project root
 LOG=~/logs/rithmic-health-$(date +%Y%m%d-%H%M).jsonl && mkdir -p ~/logs
 
 RITHMIC_URI=wss://rituz00100.rithmic.com:443 \

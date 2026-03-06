@@ -53,14 +53,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
-name = "analysis"
-version = "0.1.0"
-dependencies = [
- "backtest",
- "common",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -806,34 +798,6 @@ dependencies = [
 [[package]]
 name = "backtest"
 version = "0.1.0"
-dependencies = [
- "common",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "bar-feature-export"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow",
- "bars",
- "book-builder",
- "clap",
- "common",
- "databento-ingest",
- "features",
- "labels",
- "parquet",
-]
-
-[[package]]
-name = "bars"
-version = "0.1.0"
-dependencies = [
- "common",
-]
 
 [[package]]
 name = "base16ct"
@@ -1069,21 +1033,6 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
-
-[[package]]
-name = "cpcv-backtest"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow",
- "backtest",
- "clap",
- "parquet",
- "rayon",
- "serde",
- "serde_json",
- "xgboost-ffi",
-]
 
 [[package]]
 name = "cpufeatures"
@@ -1425,13 +1374,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
-name = "features"
-version = "0.1.0"
-dependencies = [
- "common",
-]
-
-[[package]]
 name = "ff"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1579,19 +1521,6 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "slab",
-]
-
-[[package]]
-name = "gate-test"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow",
- "clap",
- "common",
- "parquet",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -2061,17 +1990,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "info-decomposition"
-version = "0.1.0"
-dependencies = [
- "analysis",
- "anyhow",
- "clap",
- "common",
- "features",
-]
-
-[[package]]
 name = "integer-encoding"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2132,13 +2050,6 @@ checksum = "279046e6427c19c86f93df06fe9dc90c32b43f4a2a85bb3083d579e4a1e7ef03"
 dependencies = [
  "itoa",
  "ryu",
-]
-
-[[package]]
-name = "labels"
-version = "0.1.0"
-dependencies = [
- "common",
 ]
 
 [[package]]
@@ -2307,14 +2218,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "models"
-version = "0.1.0"
-dependencies = [
- "common",
- "thiserror",
-]
-
-[[package]]
 name = "multimap"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2460,20 +2363,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oracle-expectancy"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "backtest",
- "bars",
- "clap",
- "common",
- "dbn",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "ordered-float"
 version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2503,21 +2392,6 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "sha2",
-]
-
-[[package]]
-name = "parity-test"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow",
- "bars",
- "clap",
- "common",
- "databento-ingest",
- "dbn",
- "features",
- "parquet",
 ]
 
 [[package]]
@@ -2878,12 +2752,10 @@ version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
- "bars",
  "base64",
  "book-builder",
  "chrono",
  "common",
- "features",
  "flate2",
  "futures-util",
  "native-tls",
@@ -3253,17 +3125,6 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
-
-[[package]]
-name = "subordination-test"
-version = "0.1.0"
-dependencies = [
- "analysis",
- "anyhow",
- "bars",
- "clap",
- "common",
-]
 
 [[package]]
 name = "subtle"
