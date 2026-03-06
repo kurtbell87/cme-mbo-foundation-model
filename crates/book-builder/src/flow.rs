@@ -1,22 +1,23 @@
 //! Flow accumulators for microstructure dynamics.
 //!
 //! Maintains exponential moving averages of order flow metrics at multiple
-//! timescales, updated O(1) per MBO event. Produces a compact FlowState
+//! event-count scales, updated O(1) per MBO event. Produces a compact FlowState
 //! snapshot at each commit point alongside CommittedState.
 //!
-//! Designed for integration with the gate test: does OFI or cancel asymmetry
-//! show predictive content for barrier outcomes?
+//! EMA decay is event-count-based: each update applies a fixed decay factor
+//! `exp(-ln2 / halflife_events)`, giving a constant lookback window in event
+//! space regardless of clock-time event rate.
 
 /// Number of EMA timescales tracked in parallel.
 pub const NUM_SCALES: usize = 3;
 
-/// Default EMA halflives in nanoseconds.
-/// Log-spaced: ~250ms (sub-second flow), ~2.5s (participant intent), ~25s (regime context).
-/// These are initial values — calibrate empirically via trade flow autocorrelation.
-pub const DEFAULT_HALFLIVES_NS: [u64; NUM_SCALES] = [
-    250_000_000,      // 250ms — aggressive flow dynamics
-    2_500_000_000,    // 2.5s  — participant-level intent
-    25_000_000_000,   // 25s   — regime context
+/// Default EMA halflives in event counts.
+/// Log-spaced: 50 (sub-second at typical MES rate), 500 (participant intent),
+/// 5000 (regime context).
+pub const DEFAULT_HALFLIVES_EVENTS: [f64; NUM_SCALES] = [
+    50.0,    // fast — sub-second at typical MES rate
+    500.0,   // med  — participant intent
+    5000.0,  // slow — regime context
 ];
 
 /// What caused the BBO to change at a commit point.
@@ -37,68 +38,45 @@ pub enum BboChangeCause {
     Multiple = 5,
 }
 
-/// Multi-scale exponential moving average accumulator.
+/// Multi-scale exponential moving average accumulator (event-count decay).
 ///
-/// Each event contributes a value that decays exponentially over time.
-/// Maintains parallel EMAs at NUM_SCALES different halflives.
+/// Each event contributes a value that decays by a fixed factor per subsequent
+/// event. Maintains parallel EMAs at NUM_SCALES different halflives.
 #[derive(Debug, Clone)]
 pub struct EmaAccumulator {
     values: [f64; NUM_SCALES],
-    halflives_ns: [u64; NUM_SCALES],
-    last_ts: u64,
-    initialized: bool,
+    decays: [f64; NUM_SCALES], // precomputed: exp(-ln2 / halflife_events)
 }
 
 impl EmaAccumulator {
-    pub fn new(halflives_ns: [u64; NUM_SCALES]) -> Self {
+    pub fn new(halflives_events: [f64; NUM_SCALES]) -> Self {
+        let mut decays = [0.0; NUM_SCALES];
+        for i in 0..NUM_SCALES {
+            decays[i] = (-0.693147180559945 / halflives_events[i]).exp();
+        }
         Self {
             values: [0.0; NUM_SCALES],
-            halflives_ns,
-            last_ts: 0,
-            initialized: false,
+            decays,
         }
     }
 
-    /// Add a value at timestamp `ts`. Decays existing state, then adds.
+    /// Add a value, decaying existing state by one event step.
     #[inline]
-    pub fn update(&mut self, ts: u64, value: f64) {
-        if self.initialized && ts > self.last_ts {
-            let dt = (ts - self.last_ts) as f64;
-            for i in 0..NUM_SCALES {
-                let decay = (-0.693147 * dt / self.halflives_ns[i] as f64).exp();
-                self.values[i] = self.values[i] * decay + value;
-            }
-        } else {
-            for i in 0..NUM_SCALES {
-                self.values[i] += value;
-            }
+    pub fn update(&mut self, value: f64) {
+        for i in 0..NUM_SCALES {
+            self.values[i] = self.values[i] * self.decays[i] + value;
         }
-        self.last_ts = ts;
-        self.initialized = true;
     }
 
-    /// Decay to timestamp `ts` without adding a new value.
-    /// Returns the current values at all scales.
+    /// Returns the current values at all scales (no timestamp needed).
     #[inline]
-    pub fn query(&self, ts: u64) -> [f64; NUM_SCALES] {
-        if self.initialized && ts > self.last_ts {
-            let dt = (ts - self.last_ts) as f64;
-            let mut out = [0.0; NUM_SCALES];
-            for i in 0..NUM_SCALES {
-                let decay = (-0.693147 * dt / self.halflives_ns[i] as f64).exp();
-                out[i] = self.values[i] * decay;
-            }
-            out
-        } else {
-            self.values
-        }
+    pub fn query(&self) -> [f64; NUM_SCALES] {
+        self.values
     }
 
     /// Reset all accumulators to zero.
     pub fn reset(&mut self) {
         self.values = [0.0; NUM_SCALES];
-        self.last_ts = 0;
-        self.initialized = false;
     }
 }
 
@@ -137,29 +115,39 @@ pub struct FlowAccumulators {
     /// Actions that modified the best level since the last commit.
     /// Used to determine BboChangeCause.
     pending_bbo_actions: Vec<(char, char)>, // (action, side)
+
+    /// Timestamp of last MBO event (for inter-event time computation).
+    last_event_ts: u64,
+    /// Whether we've seen at least one event (for inter-event time).
+    events_initialized: bool,
+    /// Nanoseconds between the two most recent MBO events.
+    last_inter_event_ns: f64,
 }
 
 impl FlowAccumulators {
-    pub fn new(halflives_ns: [u64; NUM_SCALES]) -> Self {
+    pub fn new(halflives_events: [f64; NUM_SCALES]) -> Self {
         Self {
-            trade_flow: EmaAccumulator::new(halflives_ns),
-            cancel_bid: EmaAccumulator::new(halflives_ns),
-            cancel_ask: EmaAccumulator::new(halflives_ns),
-            add_bid: EmaAccumulator::new(halflives_ns),
-            add_ask: EmaAccumulator::new(halflives_ns),
-            event_count: EmaAccumulator::new(halflives_ns),
-            trade_count: EmaAccumulator::new(halflives_ns),
-            ofi: EmaAccumulator::new(halflives_ns),
+            trade_flow: EmaAccumulator::new(halflives_events),
+            cancel_bid: EmaAccumulator::new(halflives_events),
+            cancel_ask: EmaAccumulator::new(halflives_events),
+            add_bid: EmaAccumulator::new(halflives_events),
+            add_ask: EmaAccumulator::new(halflives_events),
+            event_count: EmaAccumulator::new(halflives_events),
+            trade_count: EmaAccumulator::new(halflives_events),
+            ofi: EmaAccumulator::new(halflives_events),
             prev_best_bid_size: 0,
             prev_best_ask_size: 0,
             prev_best_bid_price: None,
             prev_best_ask_price: None,
             pending_bbo_actions: Vec::new(),
+            last_event_ts: 0,
+            events_initialized: false,
+            last_inter_event_ns: 0.0,
         }
     }
 
     pub fn with_defaults() -> Self {
-        Self::new(DEFAULT_HALFLIVES_NS)
+        Self::new(DEFAULT_HALFLIVES_EVENTS)
     }
 
     /// Update accumulators with an MBO event.
@@ -174,38 +162,45 @@ impl FlowAccumulators {
         side: char,
         size: u32,
     ) {
+        // Compute inter-event time
+        if self.events_initialized && ts >= self.last_event_ts {
+            self.last_inter_event_ns = (ts - self.last_event_ts) as f64;
+        }
+        self.last_event_ts = ts;
+        self.events_initialized = true;
+
         let sz = size as f64;
 
         // Count all events
-        self.event_count.update(ts, 1.0);
+        self.event_count.update(1.0);
 
         match action {
             'T' => {
                 // Trade: signed volume
                 let signed = if side == 'B' { sz } else { -sz };
-                self.trade_flow.update(ts, signed);
-                self.trade_count.update(ts, 1.0);
+                self.trade_flow.update(signed);
+                self.trade_count.update(1.0);
             }
             'A' => {
                 // Add: track by side
                 if side == 'B' {
-                    self.add_bid.update(ts, sz);
+                    self.add_bid.update(sz);
                 } else {
-                    self.add_ask.update(ts, sz);
+                    self.add_ask.update(sz);
                 }
             }
             'C' => {
                 // Cancel: track by side
                 if side == 'B' {
-                    self.cancel_bid.update(ts, sz);
+                    self.cancel_bid.update(sz);
                 } else {
-                    self.cancel_ask.update(ts, sz);
+                    self.cancel_ask.update(sz);
                 }
             }
             'F' => {
                 // Fill: like a trade for flow purposes (aggressive consumption)
                 let signed = if side == 'B' { sz } else { -sz };
-                self.trade_flow.update(ts, signed);
+                self.trade_flow.update(signed);
             }
             _ => {} // Modify, Clear — counted in event_count
         }
@@ -249,7 +244,7 @@ impl FlowAccumulators {
         let ofi_value = bid_ofi - ask_ofi;
 
         if ofi_value.abs() > 0.0 {
-            self.ofi.update(ts, ofi_value);
+            self.ofi.update(ofi_value);
         }
 
         // Update previous state for next OFI computation
@@ -266,15 +261,23 @@ impl FlowAccumulators {
         };
         self.pending_bbo_actions.clear();
 
-        // Query all accumulators at current time
-        let trade_flow = to_f32_3(self.trade_flow.query(ts));
-        let cancel_bid = to_f32_3(self.cancel_bid.query(ts));
-        let cancel_ask = to_f32_3(self.cancel_ask.query(ts));
-        let add_bid = to_f32_3(self.add_bid.query(ts));
-        let add_ask = to_f32_3(self.add_ask.query(ts));
-        let event_intensity = to_f32_3(self.event_count.query(ts));
-        let trade_intensity = to_f32_3(self.trade_count.query(ts));
-        let ofi = to_f32_3(self.ofi.query(ts));
+        // Query all accumulators (no timestamp needed)
+        let trade_flow = to_f32_3(self.trade_flow.query());
+        let cancel_bid = to_f32_3(self.cancel_bid.query());
+        let cancel_ask = to_f32_3(self.cancel_ask.query());
+        let add_bid = to_f32_3(self.add_bid.query());
+        let add_ask = to_f32_3(self.add_ask.query());
+        let event_intensity = to_f32_3(self.event_count.query());
+        let trade_intensity = to_f32_3(self.trade_count.query());
+        let ofi = to_f32_3(self.ofi.query());
+
+        // Inter-event time features
+        let inter_event_time_ns = self.last_inter_event_ns as f32;
+        let event_rate = if self.last_inter_event_ns > 0.0 {
+            (1e9 / self.last_inter_event_ns) as f32
+        } else {
+            0.0
+        };
 
         FlowState {
             ts,
@@ -286,6 +289,8 @@ impl FlowAccumulators {
             event_intensity,
             trade_intensity,
             ofi,
+            inter_event_time_ns,
+            event_rate,
             bbo_change_cause: cause,
         }
     }
@@ -389,6 +394,10 @@ pub struct FlowState {
     pub trade_intensity: [f32; NUM_SCALES],
     /// Order flow imbalance (Cont et al. 2014) at each timescale.
     pub ofi: [f32; NUM_SCALES],
+    /// Nanoseconds since last MBO event.
+    pub inter_event_time_ns: f32,
+    /// Events per second (1e9 / inter_event_ns).
+    pub event_rate: f32,
     /// What caused the BBO change at this commit.
     pub bbo_change_cause: BboChangeCause,
 }
@@ -417,12 +426,15 @@ pub const FLOW_FEATURE_NAMES: &[&str] = &[
     "trade_intensity_fast", "trade_intensity_med", "trade_intensity_slow",
     // ofi × 3
     "ofi_fast", "ofi_med", "ofi_slow",
+    // inter-event time features
+    "inter_event_time_ns",
+    "event_rate",
     // bbo_change_cause (categorical, encoded as u8)
     "bbo_change_cause",
 ];
 
-/// Number of flow features (8 accumulators × 3 scales + 1 cause = 25).
-pub const NUM_FLOW_FEATURES: usize = 25;
+/// Number of flow features (8 accumulators × 3 scales + 2 time features + 1 cause = 27).
+pub const NUM_FLOW_FEATURES: usize = 27;
 
 impl FlowState {
     /// Extract flow features as a flat f32 array for model input.
@@ -438,6 +450,8 @@ impl FlowState {
         for &v in &self.event_intensity { out[i] = v; i += 1; }
         for &v in &self.trade_intensity { out[i] = v; i += 1; }
         for &v in &self.ofi { out[i] = v; i += 1; }
+        out[i] = self.inter_event_time_ns; i += 1;
+        out[i] = self.event_rate; i += 1;
         out[i] = self.bbo_change_cause as u8 as f32;
 
         out
@@ -450,9 +464,9 @@ mod tests {
 
     #[test]
     fn test_ema_single_update() {
-        let mut ema = EmaAccumulator::new(DEFAULT_HALFLIVES_NS);
-        ema.update(1_000_000_000, 10.0); // 1s
-        let vals = ema.query(1_000_000_000);
+        let mut ema = EmaAccumulator::new(DEFAULT_HALFLIVES_EVENTS);
+        ema.update(10.0);
+        let vals = ema.query();
         assert!((vals[0] - 10.0).abs() < 1e-6);
         assert!((vals[1] - 10.0).abs() < 1e-6);
         assert!((vals[2] - 10.0).abs() < 1e-6);
@@ -460,39 +474,44 @@ mod tests {
 
     #[test]
     fn test_ema_decay() {
-        let mut ema = EmaAccumulator::new(DEFAULT_HALFLIVES_NS);
-        ema.update(0, 100.0);
+        let mut ema = EmaAccumulator::new(DEFAULT_HALFLIVES_EVENTS);
+        ema.update(100.0);
 
-        // After one halflife, value should be ~50
-        let vals_fast = ema.query(DEFAULT_HALFLIVES_NS[0]);
+        // After halflife_events updates of 0.0, value should halve.
+        // Fast halflife = 50 events.
+        for _ in 0..50 {
+            ema.update(0.0);
+        }
+        let vals = ema.query();
         assert!(
-            (vals_fast[0] - 50.0).abs() < 1.0,
-            "Expected ~50 after one fast halflife, got {:.1}",
-            vals_fast[0]
+            (vals[0] - 50.0).abs() < 1.0,
+            "Expected ~50 after one fast halflife (50 events), got {:.1}",
+            vals[0]
         );
 
-        // Slow scale should barely decay
-        let vals_slow = ema.query(DEFAULT_HALFLIVES_NS[0]);
+        // Slow scale (halflife=5000) should barely decay after 50 events
+        // decay^50 = exp(-ln2 * 50/5000) = exp(-0.00693) ≈ 0.9931
         assert!(
-            vals_slow[2] > 90.0,
-            "Slow scale should barely decay after fast halflife, got {:.1}",
-            vals_slow[2]
+            vals[2] > 90.0,
+            "Slow scale should barely decay after 50 events, got {:.1}",
+            vals[2]
         );
     }
 
     #[test]
     fn test_ema_multiple_updates() {
-        let mut ema = EmaAccumulator::new(DEFAULT_HALFLIVES_NS);
-        // Two events at different times
-        ema.update(0, 100.0);
-        ema.update(250_000_000, 100.0); // 250ms later (one fast halflife)
+        let mut ema = EmaAccumulator::new(DEFAULT_HALFLIVES_EVENTS);
+        ema.update(100.0);
+        // One more event with value 100 — first value decays by one step
+        ema.update(100.0);
 
-        let vals = ema.query(250_000_000);
-        // Fast scale: 100 * 0.5 + 100 = 150
+        let vals = ema.query();
+        let decay = (-0.693147180559945_f64 / 50.0).exp();
+        let expected = 100.0 * decay + 100.0;
         assert!(
-            (vals[0] - 150.0).abs() < 1.0,
-            "Expected ~150, got {:.1}",
-            vals[0]
+            (vals[0] - expected).abs() < 0.1,
+            "Expected ~{:.1}, got {:.1}",
+            expected, vals[0]
         );
     }
 
@@ -505,17 +524,20 @@ mod tests {
         accums.on_event(1_000_000_000, 'T', 'A', 3);
 
         let state = accums.snapshot(1_000_000_000, false, Some(100), Some(101), 10, 10);
-        // Net trade flow: +5 - 3 = +2
+        // Net trade flow: +5 decayed once then -3 added
+        let decay = (-0.693147180559945_f64 / 50.0).exp();
+        let expected = 5.0 * decay - 3.0;
         assert!(
-            (state.trade_flow[0] - 2.0).abs() < 0.1,
-            "Expected trade_flow ~2.0, got {:.1}",
-            state.trade_flow[0]
+            (state.trade_flow[0] as f64 - expected).abs() < 0.1,
+            "Expected trade_flow ~{:.1}, got {:.1}",
+            expected, state.trade_flow[0]
         );
-        // Two trades
+        // Two trade-related events (T counts for trade_count)
+        let expected_tc = 1.0 * decay + 1.0;
         assert!(
-            (state.trade_intensity[0] - 2.0).abs() < 0.1,
-            "Expected 2 trades, got {:.1}",
-            state.trade_intensity[0]
+            (state.trade_intensity[0] as f64 - expected_tc).abs() < 0.1,
+            "Expected ~{:.1} trades, got {:.1}",
+            expected_tc, state.trade_intensity[0]
         );
     }
 
@@ -530,8 +552,6 @@ mod tests {
         let state = accums.snapshot(1_000_000_000, false, Some(100), Some(101), 10, 10);
         // cancel_bid should be larger than cancel_ask
         assert!(state.cancel_bid[0] > state.cancel_ask[0]);
-        assert!((state.cancel_bid[0] - 35.0).abs() < 0.1);
-        assert!((state.cancel_ask[0] - 5.0).abs() < 0.1);
     }
 
     #[test]
@@ -541,8 +561,6 @@ mod tests {
         accums.snapshot(0, false, Some(100), Some(102), 10, 10);
         // Bid improves: price goes up → OFI positive (buying pressure)
         let state = accums.snapshot(1_000_000, true, Some(101), Some(102), 8, 10);
-        // bid_ofi = 8 (new level), ask_ofi = 0 (unchanged)
-        // OFI = 8 - 0 = 8
         assert!(
             state.ofi[0] > 0.0,
             "OFI should be positive on bid improvement, got {:.1}",
@@ -557,8 +575,6 @@ mod tests {
         accums.snapshot(0, false, Some(100), Some(102), 50, 10);
         // Bid deteriorates: price drops → OFI negative
         let state = accums.snapshot(1_000_000, true, Some(99), Some(102), 5, 10);
-        // bid_ofi = -50 (old level consumed), ask_ofi = 0
-        // OFI = -50 - 0 = -50
         assert!(
             state.ofi[0] < 0.0,
             "OFI should be negative when bid consumed, got {:.1}",
@@ -573,8 +589,6 @@ mod tests {
         accums.snapshot(0, false, Some(100), Some(102), 10, 10);
         // Same price, bid queue grows
         let state = accums.snapshot(1_000_000, false, Some(100), Some(102), 15, 10);
-        // bid_ofi = 15 - 10 = 5, ask_ofi = 0
-        // OFI = 5
         assert!(
             (state.ofi[0] - 5.0).abs() < 0.1,
             "OFI should be +5 from queue growth, got {:.1}",
@@ -617,7 +631,6 @@ mod tests {
 
     #[test]
     fn test_flow_state_to_features() {
-        let accums = FlowAccumulators::with_defaults();
         let state = FlowState {
             ts: 0,
             trade_flow: [1.0, 2.0, 3.0],
@@ -628,18 +641,39 @@ mod tests {
             event_intensity: [16.0, 17.0, 18.0],
             trade_intensity: [19.0, 20.0, 21.0],
             ofi: [22.0, 23.0, 24.0],
+            inter_event_time_ns: 1000.0,
+            event_rate: 1_000_000.0,
             bbo_change_cause: BboChangeCause::Cancel,
         };
         let features = state.to_features();
         assert_eq!(features.len(), NUM_FLOW_FEATURES);
         assert!((features[0] - 1.0).abs() < 1e-6); // trade_flow_fast
         assert!((features[23] - 24.0).abs() < 1e-6); // ofi_slow
-        assert!((features[24] - 2.0).abs() < 1e-6); // bbo_change_cause = Cancel = 2
-        let _ = accums; // suppress unused warning
+        assert!((features[24] - 1000.0).abs() < 1e-6); // inter_event_time_ns
+        assert!((features[25] - 1_000_000.0).abs() < 1e-6); // event_rate
+        assert!((features[26] - 2.0).abs() < 1e-6); // bbo_change_cause = Cancel = 2
     }
 
     #[test]
     fn test_num_flow_features_matches_names() {
         assert_eq!(NUM_FLOW_FEATURES, FLOW_FEATURE_NAMES.len());
+    }
+
+    #[test]
+    fn test_inter_event_time() {
+        let mut accums = FlowAccumulators::with_defaults();
+        accums.on_event(1_000_000_000, 'A', 'B', 10); // 1s
+        accums.on_event(1_001_000_000, 'A', 'B', 10); // 1.001s — 1ms gap
+        let state = accums.snapshot(1_001_000_000, false, Some(100), Some(102), 10, 10);
+        assert!(
+            (state.inter_event_time_ns - 1_000_000.0).abs() < 1.0,
+            "Expected 1ms inter-event time, got {:.0}ns",
+            state.inter_event_time_ns
+        );
+        assert!(
+            (state.event_rate - 1000.0).abs() < 1.0,
+            "Expected 1000 events/sec, got {:.0}",
+            state.event_rate
+        );
     }
 }

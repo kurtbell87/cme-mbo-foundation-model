@@ -280,8 +280,12 @@ fn roundtrip_best_bid_offer() {
         clear_bits: None,
         bid_price: Some(5000.25),
         bid_size: Some(42),
+        bid_orders: None,
+        bid_implicit_size: None,
         ask_price: Some(5000.50),
         ask_size: Some(37),
+        ask_orders: None,
+        ask_implicit_size: None,
         ssboe: Some(1700000000),
         usecs: Some(123456),
     };
