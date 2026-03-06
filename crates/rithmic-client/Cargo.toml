@@ -16,6 +16,7 @@ aws-sdk-s3 = { workspace = true }
 flate2 = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
+rustc-hash = { workspace = true }
 native-tls = "0.2"
 futures-util = "0.3"
 

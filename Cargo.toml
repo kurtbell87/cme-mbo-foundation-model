@@ -63,6 +63,9 @@ prost-build = "0.14"
 # WebSocket (for Rithmic)
 tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 
+# Fast hashing (FxHashMap for integer/string keys)
+rustc-hash = "2"
+
 # Benchmarking
 criterion = "0.5"
 

@@ -300,7 +300,6 @@ impl RithmicClient {
         let instrument_id = 1u32;
         let disp_symbol = self.config.symbol.clone();
         let disp_exchange = self.config.exchange.clone();
-        let recovery_ws_cmd_tx = ws_cmd_tx.clone();
         let disp_capture_tx = raw_capture_tx.clone();
         let dispatcher_handle = tokio::spawn(async move {
             dispatcher::run_dispatcher(
@@ -334,26 +333,6 @@ impl RithmicClient {
                 instrument_id,
             )
             .await
-        });
-
-        // ---------------------------------------------------------------
-        // Spawn recovery listener
-        // ---------------------------------------------------------------
-        let recovery_symbol = self.config.symbol.clone();
-        let recovery_exchange = self.config.exchange.clone();
-        let recovery_handle = tokio::spawn(async move {
-            while recovery_rx.recv().await.is_some() {
-                eprintln!("[recovery] divergence signal received — requesting fresh DBO snapshot");
-                let snap = subscription::request_dbo_snapshot(&recovery_symbol, &recovery_exchange);
-                let encoded = encode_ws_message(&snap);
-                if let tokio_tungstenite::tungstenite::protocol::Message::Binary(data) = encoded {
-                    if recovery_ws_cmd_tx.send(data.to_vec()).await.is_err() {
-                        eprintln!("[recovery] ws_cmd_tx closed, cannot request snapshot");
-                        break;
-                    }
-                }
-            }
-            eprintln!("[recovery] channel closed");
         });
 
         // ---------------------------------------------------------------

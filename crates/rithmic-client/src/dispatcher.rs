@@ -103,6 +103,7 @@ enum DispatcherState {
 /// and routes to the pipeline. Handles DBO (160), snapshots (116/161),
 /// DBO sub ack (118), heartbeats, rejects, and logouts.
 /// BBO and trades are handled by the BBO reader on a separate connection.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_dispatcher(
     mut raw_msg_rx: mpsc::Receiver<(Vec<u8>, u64)>,
     order_event_tx: mpsc::Sender<PipelineCommand>,

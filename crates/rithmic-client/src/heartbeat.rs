@@ -19,6 +19,12 @@ pub struct LivenessTracker {
     epoch: Instant,
 }
 
+impl Default for LivenessTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LivenessTracker {
     pub fn new() -> Self {
         let epoch = Instant::now();
