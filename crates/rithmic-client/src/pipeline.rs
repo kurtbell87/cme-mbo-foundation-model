@@ -218,7 +218,6 @@ pub async fn run_pipeline(
 
     loop {
         tokio::select! {
-            // Drain BBO updates (non-blocking when events are available)
             bbo = bbo_rx.recv() => {
                 match bbo {
                     Some(update) => {
@@ -272,6 +271,7 @@ pub async fn run_pipeline(
                                 "initial": true,
                                 "post_initial_recoveries": 0,
                             }));
+                            eprintln!("[pipeline] initial snapshot complete — bbo_check logging enabled");
                         } else {
                             post_initial_recoveries += 1;
                             health.log("snapshot_complete", serde_json::json!({

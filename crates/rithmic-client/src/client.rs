@@ -52,9 +52,6 @@ const BBO_BUF: usize = 1024;
 const RAW_CAPTURE_BUF: usize = 4096;
 const OUTPUT_BUF: usize = 256;
 const WS_CMD_BUF: usize = 64;
-/// Recovery signal channel: pipeline → client. Buffer=1; try_send drops
-/// redundant signals when a recovery is already in flight.
-const RECOVERY_BUF: usize = 1;
 
 /// Structured result from a single `run()` session.
 pub struct RunResult {
@@ -163,7 +160,6 @@ impl RithmicClient {
         let (bbo_tx, bbo_rx) = mpsc::channel(BBO_BUF);
         let (output_tx, mut output_rx) = mpsc::channel::<FeatureOutput>(OUTPUT_BUF);
         let (ws_cmd_tx, mut ws_cmd_rx) = mpsc::channel::<Vec<u8>>(WS_CMD_BUF);
-        let (recovery_tx, mut recovery_rx) = mpsc::channel::<()>(RECOVERY_BUF);
 
         // Optional S3 capture channel (shared between dispatcher and BBO reader)
         let raw_capture_tx: Option<mpsc::Sender<CaptureRecord>> = if let Some(ref bucket) = self.config.s3_bucket
@@ -371,7 +367,6 @@ impl RithmicClient {
                 pipeline_cmd_rx,
                 bbo_rx,
                 output_tx,
-                recovery_tx,
                 pipe_health,
                 pipe_counters,
                 instrument_id,
@@ -443,17 +438,9 @@ impl RithmicClient {
             r = pipeline_handle => {
                 match r {
                     Ok(Ok(())) => { eprintln!("[client] pipeline ended normally"); ("pipeline_ok".to_string(), false) }
-                    Ok(Err(crate::error::RithmicError::BookDegraded(ref msg))) => {
-                        eprintln!("[client] pipeline DEGRADED: {msg}");
-                        (format!("degraded: {msg}"), true)
-                    }
                     Ok(Err(e)) => { eprintln!("[client] pipeline error: {e}"); (format!("pipeline_err: {e}"), false) }
                     Err(e) => { eprintln!("[client] pipeline panicked: {e}"); (format!("pipeline_panic: {e}"), false) }
                 }
-            }
-            _ = recovery_handle => {
-                eprintln!("[client] recovery task ended");
-                ("recovery_ended".to_string(), false)
             }
             _ = output_handle => {
                 eprintln!("[client] output task ended");
