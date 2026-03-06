@@ -211,6 +211,16 @@ impl BookBuilder {
         self.ask_levels.first().map(|(_, s)| *s).unwrap_or(0)
     }
 
+    /// Raw bid levels (ascending by price — best bid is last).
+    pub fn bid_levels_raw(&self) -> &[(i64, u32)] {
+        &self.bid_levels
+    }
+
+    /// Raw ask levels (ascending by price — best ask is first).
+    pub fn ask_levels_raw(&self) -> &[(i64, u32)] {
+        &self.ask_levels
+    }
+
     /// Snapshot the current book state as a CommittedState.
     pub fn current_committed_state(&self, ts: u64) -> CommittedState {
         let has_bid = !self.bid_levels.is_empty();

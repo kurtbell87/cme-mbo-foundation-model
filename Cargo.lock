@@ -851,6 +851,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "book-verify"
+version = "0.1.0"
+dependencies = [
+ "book-builder",
+ "clap",
+ "dbn",
+]
+
+[[package]]
 name = "brotli"
 version = "8.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

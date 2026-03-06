@@ -11,21 +11,13 @@
 //! | `dbo_raw` | 160, 116, 161, 118, 19, 75, 77, 13 | Dispatcher |
 //! | `bbo_raw` | 151, 150, 101, 19, 75, 77, 13 | BBO Reader |
 //!
-//! Heartbeat (19), reject (75), and logout (77/13) go to BOTH channels so
-//! each consumer can independently react to connection-level events.
+//! ## Multi-instrument architecture
 //!
-//! This eliminates processing serialization: snapshot loading (1731 entries)
-//! no longer blocks BBO/trade handling, and vice versa.
-//!
-//! ## Future: two-connection upgrade
-//!
-//! When the Rithmic account supports 2 TickerPlant sessions, replace the
-//! single socket + router with two independent connections. The dispatcher
-//! and BBO reader modules are already separated for this purpose.
-//! At current /MES throughput (~500 DBO msgs/sec, ~3 BBO msgs/sec) the
-//! single-socket approach is adequate. Two connections would eliminate the
-//! BBO-before-DBO arrival ordering inherent to a shared socket.
+//! Each instrument gets its own pipeline task (separate tokio::spawn, runs on
+//! its own OS thread in the multi-threaded runtime). The dispatcher and BBO
+//! reader demux by symbol and send to per-instrument channels.
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 
 use futures_util::{SinkExt, StreamExt};
@@ -43,6 +35,7 @@ use crate::health_log::HealthLogger;
 use crate::heartbeat::{self, LivenessTracker};
 use crate::pipeline::{self, FeatureOutput};
 use crate::subscription;
+use crate::adapter::BboUpdate;
 use crate::InfraType;
 
 /// Channel buffer sizes.
@@ -72,9 +65,9 @@ impl RithmicClient {
 
     /// Run the full pipeline: connect, authenticate, subscribe, stream.
     ///
-    /// Uses a single TickerPlant connection with split routing: a lightweight
-    /// router task dispatches raw messages by template_id to the dispatcher
-    /// (DBO) and BBO reader (BBO/trades) concurrently.
+    /// Spawns one pipeline task per instrument (separate threads via tokio).
+    /// The dispatcher and BBO reader demux by symbol and route to per-instrument
+    /// channels.
     pub async fn run(&self) -> Result<RunResult, RithmicError> {
         let run_start = Instant::now();
         let counters = MessageCounters::new();
@@ -88,13 +81,16 @@ impl RithmicClient {
                     .expect("/dev/null always openable")
             }
         };
+
+        let instrument_names: Vec<String> = self.config.instruments.iter()
+            .map(|s| format!("{}@{}", s.symbol, s.exchange))
+            .collect();
+
         health.log("session_start", serde_json::json!({
-            "symbol": self.config.symbol,
-            "exchange": self.config.exchange,
-            "tick_size": self.config.tick_size,
+            "instruments": instrument_names,
             "dev_mode": self.config.dev_mode,
             "log_file": self.config.log_file,
-            "architecture": "split-routing",
+            "architecture": "split-routing-multi-instrument",
         }));
 
         eprintln!("[client] authenticating to {}...", self.config.uri);
@@ -119,54 +115,101 @@ impl RithmicClient {
         let (mut ws_sink, mut ws_stream) = auth_result.ws_stream.split();
         let heartbeat_interval = Duration::from_secs(auth_result.heartbeat_interval);
 
-        // Subscribe to market data + DBO + initial snapshot
-        eprintln!(
-            "[client] subscribing to {} on {}...",
-            self.config.symbol, self.config.exchange
-        );
+        // Subscribe to market data + DBO + initial snapshot for each instrument
+        for sc in &self.config.instruments {
+            eprintln!(
+                "[client] subscribing to {} on {} (instrument_id={})...",
+                sc.symbol, sc.exchange, sc.instrument_id
+            );
 
-        let mdu = subscription::subscribe_market_data(&self.config.symbol, &self.config.exchange);
-        ws_sink
-            .send(encode_ws_message(&mdu))
-            .await
-            .map_err(|e| RithmicError::WebSocket(format!("send market data sub: {e}")))?;
+            let mdu = subscription::subscribe_market_data(&sc.symbol, &sc.exchange);
+            ws_sink
+                .send(encode_ws_message(&mdu))
+                .await
+                .map_err(|e| RithmicError::WebSocket(format!("send market data sub for {}: {e}", sc.symbol)))?;
 
-        let dbo = subscription::subscribe_depth_by_order(&self.config.symbol, &self.config.exchange);
-        ws_sink
-            .send(encode_ws_message(&dbo))
-            .await
-            .map_err(|e| RithmicError::WebSocket(format!("send DBO sub: {e}")))?;
+            let dbo = subscription::subscribe_depth_by_order(&sc.symbol, &sc.exchange);
+            ws_sink
+                .send(encode_ws_message(&dbo))
+                .await
+                .map_err(|e| RithmicError::WebSocket(format!("send DBO sub for {}: {e}", sc.symbol)))?;
 
-        let snap = subscription::request_dbo_snapshot(&self.config.symbol, &self.config.exchange);
-        ws_sink
-            .send(encode_ws_message(&snap))
-            .await
-            .map_err(|e| RithmicError::WebSocket(format!("send DBO snapshot req: {e}")))?;
+            let snap = subscription::request_dbo_snapshot(&sc.symbol, &sc.exchange);
+            ws_sink
+                .send(encode_ws_message(&snap))
+                .await
+                .map_err(|e| RithmicError::WebSocket(format!("send DBO snapshot req for {}: {e}", sc.symbol)))?;
+        }
 
-        eprintln!("[client] subscribed + snapshot requested, starting pipeline...");
+        eprintln!("[client] all instruments subscribed + snapshots requested, starting pipeline...");
 
         // ---------------------------------------------------------------
-        // Create channels
+        // Create per-instrument channels
         // ---------------------------------------------------------------
-        // Router → dispatcher (DBO messages, bundled with wall-clock receive time)
-        let (dbo_raw_tx, dbo_raw_rx) = mpsc::channel::<(Vec<u8>, u64)>(RAW_MSG_BUF);
-        // Router → BBO reader (BBO + trade messages, bundled with wall-clock receive time)
-        let (bbo_raw_tx, bbo_raw_rx) = mpsc::channel::<(Vec<u8>, u64)>(RAW_MSG_BUF);
-        // Dispatcher → pipeline (order events + control)
-        let (pipeline_cmd_tx, pipeline_cmd_rx) = mpsc::channel::<PipelineCommand>(PIPELINE_CMD_BUF);
-        // BBO reader also sends trade events to pipeline (two producers, one consumer)
-        let trade_cmd_tx = pipeline_cmd_tx.clone();
-        // BBO reader → pipeline (BBO updates for validation)
-        let (bbo_tx, bbo_rx) = mpsc::channel(BBO_BUF);
+        let mut instrument_cmd_txs: HashMap<u32, mpsc::Sender<PipelineCommand>> = HashMap::new();
+        let mut instrument_bbo_txs: HashMap<u32, mpsc::Sender<BboUpdate>> = HashMap::new();
+        let mut symbol_to_id: HashMap<String, u32> = HashMap::new();
+
+        // Also collect trade_txs (clones of cmd_txs) for the BBO reader
+        let mut instrument_trade_txs: HashMap<u32, mpsc::Sender<PipelineCommand>> = HashMap::new();
+
         let (output_tx, mut output_rx) = mpsc::channel::<FeatureOutput>(OUTPUT_BUF);
         let (ws_cmd_tx, mut ws_cmd_rx) = mpsc::channel::<Vec<u8>>(WS_CMD_BUF);
 
-        // Optional S3 capture channel (shared between dispatcher and BBO reader)
+        let mut pipeline_handles = Vec::new();
+
+        for sc in &self.config.instruments {
+            let (cmd_tx, cmd_rx) = mpsc::channel::<PipelineCommand>(PIPELINE_CMD_BUF);
+            let (bbo_tx, bbo_rx) = mpsc::channel::<BboUpdate>(BBO_BUF);
+
+            // Trade events go through the same cmd channel (two producers: dispatcher + bbo_reader)
+            let trade_tx = cmd_tx.clone();
+
+            instrument_cmd_txs.insert(sc.instrument_id, cmd_tx);
+            instrument_bbo_txs.insert(sc.instrument_id, bbo_tx);
+            instrument_trade_txs.insert(sc.instrument_id, trade_tx);
+            symbol_to_id.insert(sc.symbol.clone(), sc.instrument_id);
+
+            // Spawn pipeline task for this instrument
+            let pipe_counters = counters.clone();
+            let pipe_health = health.clone();
+            let pipe_output_tx = output_tx.clone();
+            let pipe_instrument_id = sc.instrument_id;
+            let pipe_symbol = sc.symbol.clone();
+            let pipe_tick_size = sc.tick_size;
+
+            let handle = tokio::spawn(async move {
+                pipeline::run_pipeline(
+                    cmd_rx,
+                    bbo_rx,
+                    pipe_output_tx,
+                    pipe_health,
+                    pipe_counters,
+                    pipe_instrument_id,
+                    pipe_symbol,
+                    pipe_tick_size,
+                )
+                .await
+            });
+
+            pipeline_handles.push((sc.symbol.clone(), handle));
+        }
+
+        // Drop the original output_tx so the output task closes when all pipelines finish
+        drop(output_tx);
+
+        // ---------------------------------------------------------------
+        // Router channels
+        // ---------------------------------------------------------------
+        let (dbo_raw_tx, dbo_raw_rx) = mpsc::channel::<(Vec<u8>, u64)>(RAW_MSG_BUF);
+        let (bbo_raw_tx, bbo_raw_rx) = mpsc::channel::<(Vec<u8>, u64)>(RAW_MSG_BUF);
+
+        // Optional S3 capture channel
         let raw_capture_tx: Option<mpsc::Sender<CaptureRecord>> = if let Some(ref bucket) = self.config.s3_bucket
         {
             let (tx, rx) = mpsc::channel::<CaptureRecord>(RAW_CAPTURE_BUF);
             let cap_bucket = bucket.clone();
-            let cap_symbol = self.config.symbol.clone();
+            let cap_symbol = self.config.primary_symbol().to_string();
             tokio::spawn(async move {
                 if let Err(e) = crate::capture::run_capture_uploader(rx, cap_bucket, cap_symbol).await {
                     eprintln!("[capture] uploader error: {e}");
@@ -179,15 +222,10 @@ impl RithmicClient {
 
         // ---------------------------------------------------------------
         // Spawn WebSocket read + router task
-        //
-        // Reads raw binary messages, extracts template_id, and routes to
-        // the appropriate downstream channel. This is the only task that
-        // touches the WebSocket read half.
         // ---------------------------------------------------------------
         let read_liveness = liveness.clone();
         let ws_read_handle = tokio::spawn(async move {
             while let Some(msg_result) = ws_stream.next().await {
-                // Capture wall-clock immediately on receive
                 let receive_wall_ns = SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -198,7 +236,6 @@ impl RithmicClient {
                         if let tokio_tungstenite::tungstenite::protocol::Message::Binary(data) = msg {
                             let raw = data.to_vec();
 
-                            // Extract template_id for routing (cheap — only reads one varint field)
                             let ws_msg = tokio_tungstenite::tungstenite::protocol::Message::Binary(
                                 raw.clone().into(),
                             );
@@ -254,7 +291,7 @@ impl RithmicClient {
         });
 
         // ---------------------------------------------------------------
-        // Spawn write task: heartbeat + outbound commands (snapshot requests)
+        // Spawn write task: heartbeat + outbound commands
         // ---------------------------------------------------------------
         let hb_liveness = liveness.clone();
         let ws_write_handle = tokio::spawn(async move {
@@ -293,31 +330,27 @@ impl RithmicClient {
         });
 
         // ---------------------------------------------------------------
-        // Spawn dispatcher (DBO channel → pipeline)
+        // Spawn dispatcher (DBO channel → per-instrument pipeline tasks)
         // ---------------------------------------------------------------
         let disp_counters = counters.clone();
         let disp_liveness = liveness.clone();
-        let instrument_id = 1u32;
-        let disp_symbol = self.config.symbol.clone();
-        let disp_exchange = self.config.exchange.clone();
+        let disp_instruments = self.config.instruments.clone();
         let disp_capture_tx = raw_capture_tx.clone();
         let dispatcher_handle = tokio::spawn(async move {
             dispatcher::run_dispatcher(
                 dbo_raw_rx,
-                pipeline_cmd_tx,
+                instrument_cmd_txs,
                 ws_cmd_tx,
                 disp_capture_tx,
                 disp_counters,
                 disp_liveness,
-                instrument_id,
-                disp_symbol,
-                disp_exchange,
+                disp_instruments,
             )
             .await
         });
 
         // ---------------------------------------------------------------
-        // Spawn BBO reader (BBO channel → pipeline + bbo validation)
+        // Spawn BBO reader (BBO channel → per-instrument pipeline tasks)
         // ---------------------------------------------------------------
         let bbo_reader_counters = counters.clone();
         let bbo_reader_liveness = liveness.clone();
@@ -325,41 +358,22 @@ impl RithmicClient {
         let bbo_reader_handle = tokio::spawn(async move {
             bbo_reader::run_bbo_reader(
                 bbo_raw_rx,
-                bbo_tx,
-                trade_cmd_tx,
+                instrument_bbo_txs,
+                instrument_trade_txs,
                 bbo_reader_capture_tx,
                 bbo_reader_counters,
                 bbo_reader_liveness,
-                instrument_id,
+                symbol_to_id,
             )
             .await
         });
 
-        // ---------------------------------------------------------------
-        // Spawn pipeline task
-        // ---------------------------------------------------------------
-        let pipe_counters = counters.clone();
-        let pipe_health = health.clone();
-        let tick_size = self.config.tick_size;
-        let pipeline_handle = tokio::spawn(async move {
-            pipeline::run_pipeline(
-                pipeline_cmd_rx,
-                bbo_rx,
-                output_tx,
-                pipe_health,
-                pipe_counters,
-                instrument_id,
-                tick_size,
-            )
-            .await
-        });
-
-        // Output task
+        // Output task — prints features from ALL instruments
         let output_handle = tokio::spawn(async move {
             while let Some(output) = output_rx.recv().await {
                 println!(
-                    "ts={} features={:?}",
-                    output.timestamp, output.features
+                    "instrument_id={} ts={} features={:?}",
+                    output.instrument_id, output.timestamp, output.features
                 );
             }
         });
@@ -389,8 +403,24 @@ impl RithmicClient {
         });
 
         // ---------------------------------------------------------------
-        // Monitor all tasks
+        // Monitor all tasks — first failure triggers shutdown
         // ---------------------------------------------------------------
+
+        // Build a future that resolves when any pipeline task finishes
+        let pipeline_monitor = async {
+            // We can't select! over a dynamic vec, so use tokio::select! on a JoinSet
+            // approach: poll all handles
+            let mut set = tokio::task::JoinSet::new();
+            for (sym, handle) in pipeline_handles {
+                let sym_clone = sym.clone();
+                set.spawn(async move {
+                    let result = handle.await;
+                    (sym_clone, result)
+                });
+            }
+            set.join_next().await
+        };
+
         let (exit_reason, degraded) = tokio::select! {
             _ = ws_read_handle => {
                 eprintln!("[client] router/read task ended");
@@ -414,11 +444,29 @@ impl RithmicClient {
                     Err(e) => { eprintln!("[client] BBO reader panicked: {e}"); (format!("bbo_reader_panic: {e}"), false) }
                 }
             }
-            r = pipeline_handle => {
+            r = pipeline_monitor => {
                 match r {
-                    Ok(Ok(())) => { eprintln!("[client] pipeline ended normally"); ("pipeline_ok".to_string(), false) }
-                    Ok(Err(e)) => { eprintln!("[client] pipeline error: {e}"); (format!("pipeline_err: {e}"), false) }
-                    Err(e) => { eprintln!("[client] pipeline panicked: {e}"); (format!("pipeline_panic: {e}"), false) }
+                    Some(Ok((sym, Ok(Ok(()))))) => {
+                        eprintln!("[client] pipeline {} ended normally", sym);
+                        (format!("pipeline_{}_ok", sym), false)
+                    }
+                    Some(Ok((sym, Ok(Err(e))))) => {
+                        let is_degraded = matches!(e, RithmicError::BookDegraded(_));
+                        eprintln!("[client] pipeline {} error: {e}", sym);
+                        (format!("pipeline_{}_err: {e}", sym), is_degraded)
+                    }
+                    Some(Ok((sym, Err(e)))) => {
+                        eprintln!("[client] pipeline {} panicked: {e}", sym);
+                        (format!("pipeline_{}_panic: {e}", sym), false)
+                    }
+                    Some(Err(e)) => {
+                        eprintln!("[client] pipeline join error: {e}");
+                        (format!("pipeline_join_err: {e}"), false)
+                    }
+                    None => {
+                        eprintln!("[client] no pipeline tasks to monitor");
+                        ("no_pipelines".to_string(), false)
+                    }
                 }
             }
             _ = output_handle => {
@@ -464,8 +512,6 @@ impl RithmicClient {
             });
         }
 
-        // All other exits (ws_read_ended, ws_write_ended, dispatcher errors, etc.)
-        // are connection-level failures that the watchdog can retry.
         Err(RithmicError::Disconnected(exit_reason))
     }
 }

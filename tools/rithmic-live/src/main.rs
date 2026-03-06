@@ -1,6 +1,6 @@
-//! rithmic-live: connects to Rithmic, authenticates, subscribes to /MES
-//! market data, feeds through book builder with BBO validation, and prints
-//! 5s bar features to stdout.
+//! rithmic-live: connects to Rithmic, authenticates, subscribes to market data,
+//! feeds through book builder with BBO validation, and prints flow features to
+//! stdout.
 //!
 //! The watchdog loop handles automatic reconnection with exponential backoff.
 //! BookDegraded errors exit immediately (code 2). Connection drops retry.
@@ -9,27 +9,35 @@
 //!
 //! Usage:
 //!   RITHMIC_USER=... RITHMIC_PASSWORD=... RITHMIC_URI=... \
-//!     cargo run --bin rithmic-live -- --symbol MES --exchange CME --dev-mode
+//!     cargo run -p rithmic-live -- --instrument MESH6:CME:0.25 --instrument MNQH6:CME:0.25
 
 use std::time::Duration;
 
 use clap::Parser;
 use rithmic_client::client::RithmicClient;
-use rithmic_client::config::RithmicConfig;
+use rithmic_client::config::{RithmicConfig, SymbolConfig};
 use rithmic_client::error::RithmicError;
 
 #[derive(Parser)]
-#[command(name = "rithmic-live", about = "Live Rithmic /MES pipeline")]
+#[command(name = "rithmic-live", about = "Live Rithmic multi-instrument pipeline")]
 struct Args {
-    /// Symbol to subscribe to (e.g., MES)
+    /// Instrument specification: SYMBOL:EXCHANGE:TICK_SIZE (repeatable).
+    /// Example: --instrument MESH6:CME:0.25 --instrument MNQH6:CME:0.25
+    ///
+    /// If no --instrument is given, falls back to --symbol/--exchange/--tick-size
+    /// for single-instrument backward compatibility.
+    #[arg(long)]
+    instrument: Vec<String>,
+
+    /// Symbol to subscribe to (e.g., MES) — legacy single-instrument mode
     #[arg(long, default_value = "MES")]
     symbol: String,
 
-    /// Exchange (e.g., CME)
+    /// Exchange (e.g., CME) — legacy single-instrument mode
     #[arg(long, default_value = "CME")]
     exchange: String,
 
-    /// Tick size for the instrument
+    /// Tick size for the instrument — legacy single-instrument mode
     #[arg(long, default_value = "0.25")]
     tick_size: f64,
 
@@ -51,16 +59,57 @@ struct Args {
     cert_path: Option<String>,
 }
 
+fn parse_instrument(spec: &str, id: u32) -> Result<SymbolConfig, String> {
+    let parts: Vec<&str> = spec.split(':').collect();
+    if parts.len() != 3 {
+        return Err(format!(
+            "invalid instrument spec '{}': expected SYMBOL:EXCHANGE:TICK_SIZE",
+            spec
+        ));
+    }
+    let tick_size: f64 = parts[2]
+        .parse()
+        .map_err(|e| format!("invalid tick_size in '{}': {}", spec, e))?;
+    Ok(SymbolConfig {
+        symbol: parts[0].to_string(),
+        exchange: parts[1].to_string(),
+        tick_size,
+        instrument_id: id,
+    })
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
 
+    // Parse instruments: prefer --instrument flags, fall back to legacy --symbol/--exchange/--tick-size
+    let instruments: Vec<SymbolConfig> = if !args.instrument.is_empty() {
+        let mut result = Vec::new();
+        for (i, spec) in args.instrument.iter().enumerate() {
+            match parse_instrument(spec, (i + 1) as u32) {
+                Ok(sc) => result.push(sc),
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        result
+    } else {
+        vec![SymbolConfig {
+            symbol: args.symbol.clone(),
+            exchange: args.exchange.clone(),
+            tick_size: args.tick_size,
+            instrument_id: 1,
+        }]
+    };
+
+    let primary_symbol = instruments.first().map(|s| s.symbol.clone()).unwrap_or_else(|| "UNKNOWN".into());
+
     // Load base config from env, override with CLI args
     let config = match RithmicConfig::from_env() {
         Ok(mut cfg) => {
-            cfg.symbol = args.symbol.clone();
-            cfg.exchange = args.exchange;
-            cfg.tick_size = args.tick_size;
+            cfg.instruments = instruments;
             cfg.dev_mode = args.dev_mode;
             if args.s3_bucket.is_some() {
                 cfg.s3_bucket = args.s3_bucket;
@@ -74,7 +123,7 @@ async fn main() {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                format!("rithmic-health-{}-{secs}.jsonl", args.symbol)
+                format!("rithmic-health-{}-{secs}.jsonl", primary_symbol)
             });
             cfg
         }
@@ -94,8 +143,10 @@ async fn main() {
         }
     };
 
-    eprintln!("rithmic-live: {} on {} (tick_size={}, dev_mode={})",
-        config.symbol, config.exchange, config.tick_size, config.dev_mode);
+    let symbols_desc: Vec<String> = config.instruments.iter()
+        .map(|s| format!("{}@{}", s.symbol, s.exchange))
+        .collect();
+    eprintln!("rithmic-live: [{}] (dev_mode={})", symbols_desc.join(", "), config.dev_mode);
 
     // Watchdog retry loop with exponential backoff
     let mut attempt = 0u32;
@@ -176,12 +227,13 @@ async fn upload_health_log_to_s3(config: &RithmicConfig) {
         None => return,
     };
 
+    let primary = config.primary_symbol();
     let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let filename = std::path::Path::new(&config.log_file)
         .file_name()
         .and_then(|f| f.to_str())
         .unwrap_or("health.jsonl");
-    let key = format!("health/{}/{}/{}", config.symbol, date, filename);
+    let key = format!("health/{}/{}/{}", primary, date, filename);
 
     eprintln!("[watchdog] uploading health log to s3://{bucket}/{key}");
 
