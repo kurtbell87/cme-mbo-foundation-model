@@ -116,7 +116,7 @@ After every session that changes the codebase, update:
 # Run from the project root
 LOG=~/logs/rithmic-health-$(date +%Y%m%d-%H%M).jsonl && mkdir -p ~/logs
 
-RITHMIC_URI=wss://rituz00100.rithmic.com:443 \
+RITHMIC_URI=wss://rprotocol-mobile.rithmic.com:443 \
 RITHMIC_USER=kurtbell87Paper@amp.com \
 RITHMIC_PASSWORD=Sim145615 \
 RITHMIC_CERT_PATH=/Users/brandonbell/Downloads/0.89.0.0/etc/rithmic_ssl_cert_auth_params \
@@ -133,31 +133,45 @@ Run for at least 30 minutes through the open. Ctrl+C to stop. Log lands in `~/lo
 ```bash
 python3 -c "
 import json, sys
-events = [json.loads(l) for l in open('$LOG')]
+events = [json.loads(l) for l in open('\$LOG')]
 sd = next((e for e in events if e['event'] == 'shutdown'), {})
-recoveries = sum(1 for e in events if e['event'] == 'recovery_triggered')
-skips = sum(1 for e in events if e['event'] == 'validation_skipped')
-validations = sd.get('validations', 0)
+checks = [e for e in events if e['event'] == 'bbo_check']
+matches = sum(1 for e in checks if e.get('match'))
+total = len(checks)
 gaps = sd.get('gaps', 0)
-degraded = sd.get('degraded', False)
-skip_pct = (skips / validations * 100) if validations > 0 else 0
+match_pct = (matches / total * 100) if total > 0 else 0
 print(f'exit_reason : {sd.get(\"exit_reason\", \"unknown\")}')
-print(f'degraded    : {degraded}')
-print(f'recoveries  : {recoveries}  (pass = 0)')
-print(f'skipped     : {skips}  ({skip_pct:.1f}%)  (pass = <30%)')
-print(f'gaps        : {gaps}  (pass = 0)')
+print(f'bbo_checks  : {total}')
+print(f'exact match : {matches} ({match_pct:.1f}%)')
+print(f'gaps        : {gaps}')
 print()
-print('PASS' if (recoveries == 0 and skip_pct < 30 and gaps == 0 and not degraded) else 'FAIL')
+print('PASS' if (total > 0 and gaps == 0) else 'FAIL — no bbo_check events or gaps detected')
 "
 ```
 
-### BBO Validation Design (Phase 3 — DONE)
+### BBO Feed Lag Instrumentation (replaces validation/recovery)
 
-Two guards before triggering snapshot recovery:
-1. **Max-age:** skip if adjusted BBO age (raw − 150ms clock offset) > 400ms — stale BBO means book is MORE current
-2. **Directional-consistency:** trigger only after 5 consecutive same-direction fresh divergences
+Recovery and DEGRADED exits removed. Pipeline now logs a `bbo_check` event on every batch boundary with:
+- `book_bid`, `book_ask`, `bbo_bid`, `bbo_ask`, `bbo_bid_size`, `bbo_ask_size`
+- `dbo_ts` (exchange ns), `bbo_ts` (gateway ns) — raw timestamps, no cross-domain arithmetic
+- `match` (bool), `bid_delta_ticks`, `ask_delta_ticks` (signed, in tick units)
 
-On FAIL: `grep '"divergence"' $LOG | python3 -c "import json,sys; [print(json.loads(l)['ts_ms'], json.loads(l)['direction'], 'streak='+str(json.loads(l)['consecutive_consistent']), 'adj_age='+str(json.loads(l)['adjusted_age_ms'])+'ms') for l in sys.stdin]"`
+Offline analysis:
+```bash
+python3 -c "
+import json
+events = [json.loads(l) for l in open('\$LOG') if 'bbo_check' in l]
+matches = sum(1 for e in events if e.get('match'))
+total = len(events)
+print(f'Total checks: {total}')
+print(f'Exact matches: {matches} ({100*matches/total:.1f}%)')
+from collections import Counter
+bid_deltas = Counter(e.get('bid_delta_ticks',0) for e in events)
+ask_deltas = Counter(e.get('ask_delta_ticks',0) for e in events)
+print(f'Bid delta distribution: {sorted(bid_deltas.items())}')
+print(f'Ask delta distribution: {sorted(ask_deltas.items())}')
+"
+```
 
 ### C++ Pipeline: RETIRED
 
