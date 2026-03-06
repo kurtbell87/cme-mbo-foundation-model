@@ -1,11 +1,11 @@
 //! Derived flow features from FlowState snapshots.
 //!
-//! Takes the raw 25-element FlowState and computes derived ratios, normalized
+//! Takes the raw 27-element FlowState and computes derived ratios, normalized
 //! quantities, and cross-scale momentum features. These encode the microstructure
 //! signals that XGBoost and the gate test consume.
 //!
 //! Feature groups:
-//! - Raw (25): direct from FlowState::to_features()
+//! - Raw (27): direct from FlowState::to_features()
 //! - Per-scale derived (18): cancel/add asymmetry, OFI normalized, trade size, renewal rates
 //! - Cross-scale momentum (3): fast-minus-slow for trade flow, OFI, cancel asymmetry
 
@@ -16,8 +16,8 @@ const EPS: f32 = 1e-9;
 
 // ── Feature counts ────────────────────────────────────────────
 
-/// Raw features from FlowState (8 accumulators × 3 scales + 1 cause).
-pub const NUM_RAW: usize = 25;
+/// Raw features from FlowState (8 accumulators × 3 scales + 2 time features + 1 cause).
+pub const NUM_RAW: usize = 27;
 
 /// Per-scale derived features (6 ratios × 3 scales).
 pub const NUM_DERIVED_PER_SCALE: usize = 18;
@@ -26,12 +26,12 @@ pub const NUM_DERIVED_PER_SCALE: usize = 18;
 pub const NUM_CROSS_SCALE: usize = 3;
 
 /// Total flow feature count.
-pub const NUM_FLOW_FEATURES: usize = NUM_RAW + NUM_DERIVED_PER_SCALE + NUM_CROSS_SCALE; // 46
+pub const NUM_FLOW_FEATURES: usize = NUM_RAW + NUM_DERIVED_PER_SCALE + NUM_CROSS_SCALE; // 48
 
 // ── Feature names ─────────────────────────────────────────────
 
 pub const FLOW_FEATURE_NAMES: [&str; NUM_FLOW_FEATURES] = [
-    // --- Raw (25) ---
+    // --- Raw (27) ---
     // trade_flow × 3
     "trade_flow_fast", "trade_flow_med", "trade_flow_slow",
     // cancel_bid × 3
@@ -48,6 +48,9 @@ pub const FLOW_FEATURE_NAMES: [&str; NUM_FLOW_FEATURES] = [
     "trade_intensity_fast", "trade_intensity_med", "trade_intensity_slow",
     // ofi × 3
     "ofi_fast", "ofi_med", "ofi_slow",
+    // inter-event time features
+    "inter_event_time_ns",
+    "event_rate",
     // bbo_change_cause
     "bbo_change_cause",
 
@@ -74,11 +77,11 @@ pub const FLOW_FEATURE_NAMES: [&str; NUM_FLOW_FEATURES] = [
 
 // ── Computation ───────────────────────────────────────────────
 
-/// Compute the full 46-element flow feature vector from a FlowState.
+/// Compute the full 48-element flow feature vector from a FlowState.
 pub fn compute_flow_features(state: &FlowState) -> [f32; NUM_FLOW_FEATURES] {
     let mut f = [0.0f32; NUM_FLOW_FEATURES];
 
-    // --- Raw features (25) ---
+    // --- Raw features (27) ---
     let raw = state.to_features();
     f[..NUM_RAW].copy_from_slice(&raw);
     let mut i = NUM_RAW;
@@ -203,6 +206,8 @@ mod tests {
             event_intensity,
             trade_intensity,
             ofi,
+            inter_event_time_ns: 1_000_000.0,
+            event_rate: 1000.0,
             bbo_change_cause: cause,
         }
     }
@@ -210,7 +215,7 @@ mod tests {
     #[test]
     fn test_feature_count_matches_names() {
         assert_eq!(FLOW_FEATURE_NAMES.len(), NUM_FLOW_FEATURES);
-        assert_eq!(NUM_FLOW_FEATURES, 46);
+        assert_eq!(NUM_FLOW_FEATURES, 48);
     }
 
     #[test]
@@ -227,7 +232,7 @@ mod tests {
             BboChangeCause::Cancel,
         );
         let f = compute_flow_features(&state);
-        // First 25 should match FlowState::to_features()
+        // First 27 should match FlowState::to_features()
         let raw = state.to_features();
         for i in 0..NUM_RAW {
             assert!(
@@ -249,12 +254,12 @@ mod tests {
             BboChangeCause::None,
         );
         let f = compute_flow_features(&state);
-        // cancel_asym starts at index 25
+        // cancel_asym starts at index 27
         for s in 0..NUM_SCALES {
             assert!(
-                f[25 + s].abs() < 0.01,
+                f[27 + s].abs() < 0.01,
                 "cancel_asym[{}] should be ~0, got {}",
-                s, f[25 + s]
+                s, f[27 + s]
             );
         }
     }
@@ -273,9 +278,9 @@ mod tests {
         // (30-10)/(30+10) = 20/40 = 0.5
         for s in 0..NUM_SCALES {
             assert!(
-                (f[25 + s] - 0.5).abs() < 0.01,
+                (f[27 + s] - 0.5).abs() < 0.01,
                 "cancel_asym[{}] should be ~0.5, got {}",
-                s, f[25 + s]
+                s, f[27 + s]
             );
         }
     }
@@ -291,10 +296,10 @@ mod tests {
             BboChangeCause::None,
         );
         let f = compute_flow_features(&state);
-        // ofi_norm starts at index 31
-        assert!((f[31] - 0.1).abs() < 0.01, "ofi_norm_fast: {}", f[31]);   // 10/100
-        assert!((f[32] - 0.1).abs() < 0.01, "ofi_norm_med: {}", f[32]);    // 20/200
-        assert!((f[33] - 0.1).abs() < 0.01, "ofi_norm_slow: {}", f[33]);   // 30/300
+        // ofi_norm starts at index 33
+        assert!((f[33] - 0.1).abs() < 0.01, "ofi_norm_fast: {}", f[33]);   // 10/100
+        assert!((f[34] - 0.1).abs() < 0.01, "ofi_norm_med: {}", f[34]);    // 20/200
+        assert!((f[35] - 0.1).abs() < 0.01, "ofi_norm_slow: {}", f[35]);   // 30/300
     }
 
     #[test]
@@ -308,10 +313,10 @@ mod tests {
             BboChangeCause::None,
         );
         let f = compute_flow_features(&state);
-        // trade_size starts at index 34
-        assert!((f[34] - 5.0).abs() < 0.01, "trade_size_fast: {}", f[34]);  // 50/10
-        assert!((f[35] - 5.0).abs() < 0.01, "trade_size_med: {}", f[35]);   // 100/20
-        assert!((f[36] - 5.0).abs() < 0.01, "trade_size_slow: {}", f[36]);  // 150/30
+        // trade_size starts at index 36
+        assert!((f[36] - 5.0).abs() < 0.01, "trade_size_fast: {}", f[36]);  // 50/10
+        assert!((f[37] - 5.0).abs() < 0.01, "trade_size_med: {}", f[37]);   // 100/20
+        assert!((f[38] - 5.0).abs() < 0.01, "trade_size_slow: {}", f[38]);  // 150/30
     }
 
     #[test]
@@ -326,10 +331,10 @@ mod tests {
             BboChangeCause::None,
         );
         let f = compute_flow_features(&state);
-        // bid_renewal starts at index 37: cancel_bid / add_bid = 15/30 = 0.5
-        assert!((f[37] - 0.5).abs() < 0.01, "bid_renewal_fast: {}", f[37]);
-        // ask_renewal starts at index 40: cancel_ask / add_ask = 20/10 = 2.0
-        assert!((f[40] - 2.0).abs() < 0.01, "ask_renewal_fast: {}", f[40]);
+        // bid_renewal starts at index 39: cancel_bid / add_bid = 15/30 = 0.5
+        assert!((f[39] - 0.5).abs() < 0.01, "bid_renewal_fast: {}", f[39]);
+        // ask_renewal starts at index 42: cancel_ask / add_ask = 20/10 = 2.0
+        assert!((f[42] - 2.0).abs() < 0.01, "ask_renewal_fast: {}", f[42]);
     }
 
     #[test]
@@ -343,14 +348,14 @@ mod tests {
             BboChangeCause::None,
         );
         let f = compute_flow_features(&state);
-        // trade_flow_accel at index 43: fast - slow = 10 - 2 = 8
-        assert!((f[43] - 8.0).abs() < 0.01, "trade_flow_accel: {}", f[43]);
-        // ofi_accel at index 44: fast - slow = 8 - 1 = 7
-        assert!((f[44] - 7.0).abs() < 0.01, "ofi_accel: {}", f[44]);
-        // cancel_asym_accel at index 45:
+        // trade_flow_accel at index 45: fast - slow = 10 - 2 = 8
+        assert!((f[45] - 8.0).abs() < 0.01, "trade_flow_accel: {}", f[45]);
+        // ofi_accel at index 46: fast - slow = 8 - 1 = 7
+        assert!((f[46] - 7.0).abs() < 0.01, "ofi_accel: {}", f[46]);
+        // cancel_asym_accel at index 47:
         // fast: (20-10)/(20+10) = 0.333, slow: (10-20)/(10+20) = -0.333
         // accel = 0.333 - (-0.333) = 0.667
-        assert!((f[45] - 0.667).abs() < 0.02, "cancel_asym_accel: {}", f[45]);
+        assert!((f[47] - 0.667).abs() < 0.02, "cancel_asym_accel: {}", f[47]);
     }
 
     #[test]
