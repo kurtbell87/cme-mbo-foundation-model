@@ -21,6 +21,7 @@ members = [
     "tools/event-backtest",
     "tools/book-verify",
     "tools/mbo-tokenize",
+    "tools/markov-baseline",
 ]
 
 [workspace.package]
