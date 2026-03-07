@@ -15,10 +15,13 @@ members = [
     "crates/event-features",
     "crates/event-labels",
     "crates/flow-features",
+    "crates/seq-features",
     "tools/rithmic-live",
     "tools/event-export",
     "tools/event-backtest",
     "tools/book-verify",
+    "tools/seq-diag",
+    "tools/cloud-run",
 ]
 
 [workspace.package]
@@ -38,6 +41,8 @@ xgboost-ffi = { path = "crates/xgboost-ffi" }
 event-features = { path = "crates/event-features" }
 event-labels = { path = "crates/event-labels" }
 flow-features = { path = "crates/flow-features" }
+seq-features = { path = "crates/seq-features" }
+seq-diag = { path = "tools/seq-diag" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
