@@ -2183,6 +2183,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "markov-baseline"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "mbo-tokenizer",
+ "rustc-hash",
+]
+
+[[package]]
 name = "mbo-dl-rust"
 version = "0.1.0"
 dependencies = [

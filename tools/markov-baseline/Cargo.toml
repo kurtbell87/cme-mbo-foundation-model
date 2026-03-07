@@ -1,0 +1,12 @@
+[package]
+name = "markov-baseline"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+mbo-tokenizer = { workspace = true }
+rustc-hash = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
