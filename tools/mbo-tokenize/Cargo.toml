@@ -1,0 +1,13 @@
+[package]
+name = "mbo-tokenize"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+mbo-tokenizer = { workspace = true }
+dbn = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+rustc-hash = { workspace = true }
