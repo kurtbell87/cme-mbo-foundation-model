@@ -15,10 +15,12 @@ members = [
     "crates/event-features",
     "crates/event-labels",
     "crates/flow-features",
+    "crates/mbo-tokenizer",
     "tools/rithmic-live",
     "tools/event-export",
     "tools/event-backtest",
     "tools/book-verify",
+    "tools/mbo-tokenize",
 ]
 
 [workspace.package]
@@ -38,6 +40,7 @@ xgboost-ffi = { path = "crates/xgboost-ffi" }
 event-features = { path = "crates/event-features" }
 event-labels = { path = "crates/event-labels" }
 flow-features = { path = "crates/flow-features" }
+mbo-tokenizer = { path = "crates/mbo-tokenizer" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

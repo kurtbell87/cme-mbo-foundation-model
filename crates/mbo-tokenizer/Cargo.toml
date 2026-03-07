@@ -1,0 +1,13 @@
+[package]
+name = "mbo-tokenizer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+book-builder = { workspace = true }
+dbn = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
