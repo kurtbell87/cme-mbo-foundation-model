@@ -1,10 +1,14 @@
-# Research Questions — MBO Tokenization
+# Research Questions
+
+Last updated: 2026-03-11
+
+---
 
 ## 1. Goal
 
-Can a transformer/SSM learn the generative grammar of MBO event sequences, and does that grammar encode directional information about future price movement?
+Find a positive-expectancy trading strategy on CME E-mini/Micro futures using MBO (L3) order book data, validated through rigorous CPCV with serial execution.
 
-**Success looks like:** A pretrained sequence model whose frozen hidden states, read out by a linear probe, predict sign(future price change) above chance under CPCV with proper purging and embargo. Failure is conclusive: linear probe on pretrained representations ≤ linear probe on raw embeddings.
+**Success looks like:** At least one geometry with >60% of CPCV folds positive, expectancy CI lower bound > 0, DSR significant at p < 0.05, profit factor > 1.0 after costs.
 
 ---
 
@@ -12,86 +16,57 @@ Can a transformer/SSM learn the generative grammar of MBO event sequences, and d
 
 | Constraint | Decision |
 |------------|----------|
-| Framework  | PyTorch (training), Rust (tokenization + data pipeline) |
-| Compute    | Local first (M-series Mac). EC2 only after local signal. |
-| Data       | 2022 MES MBO, 312 .dbn.zst files, 49.2 GB (S3) |
-| Baseline   | Order-5 Markov: ppl 1.98 (0.99 bits/token) |
+| Data | 1 year MES MBO 2022 (312 days, 49.2 GB .dbn.zst on S3) |
+| Compute | Local Mac for prototyping; EC2 spot (c7a) for CPU work, RunPod (RTX 4090/H200) for GPU training |
+| Budget | Minimize EC2/data spend until local experiments show signal |
+| Execution | Serial only (one position at a time), entry at bid/ask |
+| Validation | CPCV 45-fold, DSR gate, calibration, Ljung-Box |
 
 ---
 
 ## 3. Non-Goals (This Phase)
 
-- Live trading integration
-- Multi-instrument cross-signal (deferred until single-instrument grammar is understood)
-- Hyperparameter sweeps (architecture search is premature before Gate 2)
-- BPE / hierarchical tokenization (don't compress until you know what to preserve)
+- Multi-day holding periods
+- Options / volatility strategies
+- HFT (sub-millisecond) — we are event-level but not co-located
+- New data purchases until local experiments show promise
 
 ---
 
 ## 4. Open Questions
 
-| Priority | Question | Status | Parent | Blocker | Decision Gate | Experiment(s) |
-|----------|----------|--------|--------|---------|---------------|---------------|
-| P0 | Does MBO event grammar have compositional structure beyond 5-gram? | In progress | — | — | Transformer ppl < 1.98 (Markov-5) | exp-001-grammar-gate |
-| P0 | Do pretrained representations encode directional information? | Not started | P0 Q1 | Gate 1 must pass | Linear probe > raw embeddings under CPCV | exp-002-direction-gate |
-| P1 | What is the characteristic dependency length of LOB grammar? | Partially answered | P0 Q1 | — | Markov sweep curve shape; attention pattern analysis | markov-baseline (done), exp-001 attention viz |
-| P1 | Where in the token stream does directional information concentrate? | Not started | P0 Q2 | Gate 2 | Per-position probe accuracy breakdown | exp-002 extension |
-| P2 | Mamba vs sparse attention: which architecture better fits LOB memory structure? | Not started | P1 Q1 | Dependency length answer | Compare perplexity at matched param count | exp-003 |
+| Priority | Question | Status | Blocker | Decision Gate |
+|----------|----------|--------|---------|---------------|
+| **P0** | **Does pretrained transformer + book state recon find directional signal?** | **Phase 3 READY.** Phase 1 (ppl 1.864) and Phase 2 (Gate 1.5) passed. Code+configs ready: `phase3_signal_check.py`, `cloud-run-phase3.toml`. | Phase 3 launch on RunPod | B beats majority by >= 2pp in >= 60% of CPCV folds on next BBO change direction |
+| P1 | Does cross-instrument signal exist (NQ imbalance → ES price)? | Not started. `tools/lead-lag` built but no experiment run. | Need 1 day ES+NQ MBO | If lead/lag > 50ms and significant, new feature class |
+| P1 | Does interarrival time encoding improve LM perplexity? | Not started — add `[TIME_DELTA]` sub-token (16 log-scale bins, vocab 126→142, tokens/event 4.88→5.88). All three major papers encode timing; we don't. | Needs `.timestamps` sidecar | Ablate after Phase 3. If ppl improves, adopt permanently. |
+| P2 | Is signal regime-dependent (appears in high-vol, averages to zero overall)? | Not started | — | If any regime shows >5pp lift, condition all models on regime |
+| P2 | Does continuous-time RoPE improve over learned positional embeddings for irregular MBO events? | Not started — needs `.timestamps` sidecar first (~2 hrs Rust), then custom attention integration (~1 day). LOBERT approach: `phi_i(t) = t * theta_i`. | `.timestamps` sidecar | Ablate post-Phase 3. If ppl improves by >1%, adopt. |
+| P2 | Does bps-normalized pricing enable cross-instrument pretraining (MES + ES + NQ)? | Not started — TradeFM approach. Replace tick-relative price with `(order_price - mid) / mid` in bps. | Multi-instrument data, Phase 7+ | If cross-instrument model beats single-instrument by >2pp on direction, adopt. |
 
 ---
 
 ## 5. Answered Questions
 
-| Question | Answer Type | Answer | Evidence |
-|----------|-------------|--------|----------|
-| Is there learnable structure in MBO token sequences? | CONFIRMED | Yes — ppl 1.98 with only 5-gram context on 126-token vocab. 94.5% of prices in ±50 tick range. Entropy ~1 bit/token (86% redundant). | markov-baseline on 74.5M MES tokens |
-| Does Markov perplexity improve beyond order 5? | REFUTED | No — perplexity rises after order 5 due to data sparsity (18.9M unique contexts at order 20 for 59.6M training tokens). Does NOT mean no long-range structure — means Markov can't test it. | markov-baseline sweep |
+| Question | Answer | Evidence |
+|----------|--------|----------|
+| Can 5s bar features predict short-term direction? | REFUTED | Thread 01-02: 45/45 folds negative, win rate = null |
+| Does higher resolution (event-level) fix bar-level failures? | REFUTED (for static features) | Thread 03: 0/45 folds positive with 44 LOB features |
+| Are OFI/trade flow/cancel asymmetry predictive univariately? | REFUTED | Gate test: near-null lift across all geometries |
+| Does XGBoost find nonlinear combinations of LOB features? | REFUTED | Thread 03: 35M training rows, 0/45 positive folds |
+| Do sequential BBO features + cooldown fix the autocorrelation problem? | REFUTED | Thread 06: 45/45 negative across 7 cooldown values (0–422) |
+| Can XGBoost find signal in *any* hand-engineered MBO features? | REFUTED | Threads 03, 04, 06: static LOB, flow EMA, seq-features all 0/45 |
+| Is the BookBuilder correct? | CONFIRMED | book-verify: 99.91% match vs Databento MBP-10 (54.3M checks) |
+| Do event *sequences* predict better than static snapshots (via frozen probing)? | REFUTED (frozen probe) | Thread 05 Gate 2: raw one-hot beats pretrained at all horizons (K=50,200,1000). Grammar is structural, not directional. Fine-tuning (Phase 3) still untested. |
+| Do deeper sequence models find signal XGBoost misses? | XGBoost EXHAUSTED | 4 feature sets, 0/45 positive folds. Tree models on tabular features are dead. Transformer fine-tuning is the remaining path. |
+| Can the model reconstruct pre-batch book state from ~105 events of context? | CONFIRMED | Phase 2 Gate 1.5: pre-batch size acc 67.0%, spread NM 86.5%, imb MAE 0.0656. Outperforms post-batch on spread/imbalance. LOBS5 risk did not materialize. |
+| Does the transformer learn MBO grammar beyond n-gram statistics? | CONFIRMED | Phase 1: ppl 1.864 vs Markov-5 1.984 (6.1% improvement), 6.5M params on 3.93B tokens |
 
 ---
 
 ## 6. Working Hypotheses
 
-- **H1 (Grammar):** MBO event sequences follow a learnable grammar with compositional structure. Evidence: Markov-5 achieves ppl 1.98, stream is 86% redundant, clear "phrases" visible in token output (TRADE-FILL-CANCEL, sweep patterns).
-- **H2 (Directional encoding):** The grammar is asymmetric around future price moves — certain event patterns systematically precede directional movement. Evidence: NONE. Three prior research threads (bar-level, tick-level, event-LOB) found zero directional signal in static LOB features. The open question is whether sequential structure encodes what snapshots don't.
-- **H3 (Anomaly detection):** A model that learns "normal" LOB grammar can detect anomalies (deviations from expected patterns), and those anomalies correlate with informed trading / directional intent. Evidence: Theoretical only. Unfalsifiable until tested.
-
----
-
-## 7. Gate 2 Specification — Directional Encoding
-
-### Setup
-
-1. **Pretrain** a small transformer (4 layers, 128 dim, 4 heads) on next-token prediction over full 2022 MES dataset. Training objective: autoregressive cross-entropy on the token stream. Context window: 512 tokens.
-
-2. **Freeze** all pretrained weights.
-
-3. **Extract** hidden state vectors at each COMMIT token (these mark book-consistent boundaries where direction prediction is meaningful).
-
-4. **Label** each extraction point with sign(mid_price[t+N] - mid_price[t]) for horizon N ∈ {50, 200, 1000} events.
-
-5. **Linear probe**: fit logistic regression (no hidden layers) from frozen hidden state → direction label. Use L2 regularization (no feature selection tricks).
-
-6. **CPCV evaluation** with purging and embargo:
-   - 6 groups, 2 test groups per split → 15 folds
-   - Purge: remove train samples within 5000 events of any test boundary
-   - Embargo: 1000 events after each purge boundary
-   - Report: mean accuracy, Sharpe-equivalent metric, per-fold distribution
-
-### Kill Criteria
-
-| Outcome | Interpretation | Action |
-|---------|---------------|--------|
-| Linear probe accuracy ≤ raw embedding probe accuracy across all horizons | Pretrained representations do NOT encode direction. Grammar is syntactically rich but directionally symmetric. | **STOP.** The compositional structure hypothesis for alpha is dead. Document and move on. |
-| Linear probe accuracy > raw embedding probe by ≥ 2% on any horizon, AND positive in >60% of CPCV folds | Directional information IS encoded in the grammar. The representation captures something snapshots miss. | **PROCEED** to architecture comparison (Mamba vs sparse attention) and execution-aware evaluation. |
-| Probe accuracy > raw by 1-2%, inconsistent across folds | Weak/ambiguous signal. Possibly real but not robust. | **Investigate**: per-position breakdown, regime conditioning, alternative horizons. One more experiment, then decide. |
-
-### Control: Raw Embedding Probe
-
-Run the identical linear probe on the *untrained* model's hidden states (random initialization, no pretraining). This controls for the possibility that the token embedding structure itself carries directional information (which would mean the tokenization, not the grammar learning, is doing the work).
-
-Actually run THREE probes:
-1. **Random init** — untrained transformer hidden states
-2. **Raw one-hot** — just the token ID at the COMMIT position (no context)
-3. **Pretrained** — frozen pretrained hidden states
-
-Comparison: Pretrained must beat both controls. If raw one-hot beats pretrained, the sequential context is hurting, not helping — abort.
+- **H1:** The predictive content in MBO data is in the *sequence* of events, not the instantaneous book state. Static snapshots are necessary but not sufficient. **Partially supported:** transformer learns real grammar (Phase 1) and encodes book state (Phase 2), but frozen representations showed no directional advantage over raw tokens (Gate 2). Fine-tuning (Phase 3) is the remaining test.
+- **H2:** Cross-instrument microstructure (ES/NQ lead-lag) may contain signal invisible to single-instrument analysis. **Untested.**
+- **H3:** Signal may be regime-dependent — averaging to zero unconditionally but present in specific volatility/trend states. **Untested.**
+- **H4:** Simpler targets (next BBO direction) may be more predictable than triple-barrier. **Phase 3 tests this directly** — "next BBO change direction" with 15-fold CPCV.
