@@ -25,6 +25,6 @@ python -u /experiment/phase3_signal_check.py \
     --context-len 512 \
     --stride 32768 \
     --lr-c 3e-4 \
-    --num-workers 0
+    --num-workers 4
 
 echo "=== Done: $(date -u) ==="

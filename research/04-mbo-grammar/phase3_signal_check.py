@@ -347,18 +347,18 @@ def train_fold(model, dir_head, pre_head, post_head, train_dl, device,
         epoch_dir_loss = torch.tensor(0.0, device=device)
         n_batches = 0
         t_epoch = time.time()
-        t_batch_start = time.time()
 
         for batch in train_dl:
-            t_loaded = time.time()
-            load_ms = (t_loaded - t_batch_start) * 1000
-
             x, y, commit_pos, post_state, pre_state, pre_valid_mask, n_commits, dir_targets = [
                 b.to(device, non_blocking=True) for b in batch
             ]
 
             with torch.amp.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-                lm_logits, h = model.forward_with_hidden(x)
+                if condition == "B":
+                    lm_logits, h = model.forward_with_hidden(x)
+                else:
+                    h = model.forward_hidden(x)
+
                 h_commits, valid_mask = gather_commit_hidden(h, commit_pos, n_commits)
 
                 # Direction loss (fixed-shape computation)
@@ -400,10 +400,6 @@ def train_fold(model, dir_head, pre_head, post_head, train_dl, device,
             optimizer.step()
             scheduler.step()
 
-            torch.cuda.synchronize()  # ensure GPU is done for accurate timing
-            t_compute_end = time.time()
-            compute_ms = (t_compute_end - t_loaded) * 1000
-
             epoch_dir_loss += dir_loss.detach()
             n_batches += 1
 
@@ -411,11 +407,8 @@ def train_fold(model, dir_head, pre_head, post_head, train_dl, device,
                 elapsed = time.time() - t_epoch
                 batch_rate = n_batches / elapsed if elapsed > 0 else 0
                 print(f"    ep{epoch} batch {n_batches}/{total_batches_per_epoch} "
-                      f"load={load_ms:.0f}ms gpu={compute_ms:.0f}ms "
                       f"dir_loss={dir_loss.item():.4f} "
                       f"rate={batch_rate:.1f} b/s", flush=True)
-
-            t_batch_start = time.time()
 
         epoch_elapsed = time.time() - t_epoch
         print(f"    ep{epoch} done: {n_batches} batches in {epoch_elapsed:.0f}s "
@@ -446,7 +439,7 @@ def evaluate_direction(model, dir_head, dataloader, device, amp_dtype):
         ]
 
         with torch.amp.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-            _, h = model.forward_with_hidden(x)
+            h = model.forward_hidden(x)
 
         h_commits, valid_mask = gather_commit_hidden(h, commit_pos, n_commits)
 

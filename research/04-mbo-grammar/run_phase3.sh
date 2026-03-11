@@ -28,7 +28,7 @@ python -u /experiment/phase3_signal_check.py \
     --context-len 512 \
     --stride 32768 \
     --lr-b 5e-5 \
-    --num-workers 0
+    --num-workers 4
 
 # Condition C (random init + direction only, no book_state)
 python -u /experiment/phase3_signal_check.py \
@@ -42,6 +42,6 @@ python -u /experiment/phase3_signal_check.py \
     --context-len 512 \
     --stride 32768 \
     --lr-c 3e-4 \
-    --num-workers 0
+    --num-workers 4
 
 echo "=== Done: $(date -u) ==="
