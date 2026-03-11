@@ -1,0 +1,33 @@
+[experiment]
+name = "mbo-grammar-phase3"
+
+[container]
+dockerfile = "Dockerfile"
+dockerhub_repo = "kurtbell87/mbo-dl"
+
+[instance]
+region = "us-east-1"
+max_runtime_minutes = 720
+gpu = true
+
+[runpod]
+gpu_type = "NVIDIA GeForce RTX 4090"
+container_disk_gb = 120
+gpu_count = 1
+
+[data]
+sources = [
+    { s3 = "s3://kenoma-labs-research/cloud-runs/mbo-grammar/tokens.bin", path = "/data/tokens.bin" },
+    { s3 = "s3://kenoma-labs-research/cloud-runs/mbo-grammar/tokens.bin.book_state", path = "/data/tokens.bin.book_state" },
+    { s3 = "s3://kenoma-labs-research/runs/mbo-grammar-phase2-20260310T020658Z/results/best_model.pt", path = "/data/best_model.pt" },
+]
+
+[results]
+s3_prefix = "s3://kenoma-labs-research/runs"
+
+[run]
+command = "bash /experiment/run_phase3.sh"
+
+[heartbeat]
+interval_seconds = 60
+timeout_minutes = 30
