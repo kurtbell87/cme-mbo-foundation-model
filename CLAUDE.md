@@ -1,10 +1,14 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # MBO-DL — CME Microstructure Research & Trading Pipeline
 
 ## What This Is
 
 Rust workspace for CME futures microstructure research and live trading. Ingests L3 (MBO) order book data from Databento (historical) and Rithmic (live), reconstructs full limit order books, extracts features, and evaluates trading strategies via rigorous CPCV backtesting.
 
-**Current focus:** Finding actionable alpha in event-level MBO data. Three research threads have conclusively shown that static LOB snapshot features do not predict short-term price direction. See `.kit/RESEARCH_LOG.md` for full findings and the path forward.
+**Current focus:** MBO grammar foundation model. Six research threads (01-04, 06) conclusively showed that hand-engineered LOB features + XGBoost cannot predict short-term price direction. Thread 05 pivoted to transformer pretraining on tokenized MBO event sequences (126-token vocabulary). Phase 1 (language model) and Phase 2 (book state reconstruction) gates passed. Phase 3 (directional signal check) is next. See `.kit/RESEARCH_LOG.md` for full findings.
 
 ## Read Order
 
@@ -37,6 +41,7 @@ Use `-p <package>` for workspace builds, not `--bin <name>`.
 | `crates/backtest` | Triple-barrier backtest engine |
 | `crates/rithmic-client` | Rithmic protobuf WebSocket client (live market data) |
 | `crates/databento-ingest` | Databento .dbn.zst ingestion |
+| `crates/seq-features` | 22 inter-episode BBO dynamics features (order flow pressure, BBO transition patterns) |
 | `crates/xgboost-ffi` | Pure Rust XGBoost JSON inference |
 
 ### Tools
@@ -47,6 +52,10 @@ Use `-p <package>` for workspace builds, not `--bin <name>`.
 | `tools/event-export` | Export LOB features + labels to Parquet from .dbn.zst |
 | `tools/event-backtest` | CPCV + serial PnL backtest with distributed fold sharding |
 | `tools/book-verify` | Validate BookBuilder against Databento MBP-10 ground truth |
+| `tools/seq-diag` | Dump seq-features distributions from .dbn.zst to CSV for validation |
+| `tools/cloud-run` | Multi-backend (EC2/RunPod) cloud compute orchestration with TTL enforcement |
+| `tools/lead-lag` | Cross-instrument lead/lag analysis |
+| `tools/session-strat` | Session-based strategy analysis |
 
 ### Research
 
@@ -55,12 +64,16 @@ Use `-p <package>` for workspace builds, not `--bin <name>`.
 | `research/01-bar-level-cpcv` | DEAD — bar aggregation destroys signal |
 | `research/02-tick-level-serial` | DEAD — confirms null hypothesis at execution resolution |
 | `research/03-event-lob-probability` | DEAD — 0/45 CPCV folds positive with static LOB features |
+| `research/04-mbo-grammar` | ACTIVE — transformer pretraining on tokenized MBO events. Phase 2 passed, Phase 3 next. |
 | `research/RESEARCH_INDEX.md` | Summary + pointers to evidence |
+
+Threads 04 (seq-features CPCV) and 06 (cooldown sweep) had no separate research directories — results on S3 only. See `.kit/RESEARCH_LOG.md`.
 
 ### Data
 
-- **S3:** `s3://kenoma-labs-research/data/MES-MBO-2022/` — 312 .dbn.zst files, 49.2 GB (full year 2022 MES MBO)
-- **Local:** No derived data. Re-export from .dbn.zst as needed.
+- **Local raw:** `/Users/brandonbell/LOCAL_DEV/MBO-DL-02152026/DATA/GLBX-20260207-L953CAPU5B/` — 312 .dbn.zst files, 49.2 GB (full year 2022 MES MBO)
+- **S3 raw:** `s3://kenoma-labs-research/data/MES-MBO-2022/` — same files, for cloud convenience
+- **S3 tokenized:** `s3://kenoma-labs-research/cloud-runs/mbo-grammar/` — tokens.bin, .mids, .book_state, .meta.json
 
 ## Git Workflow
 
@@ -190,10 +203,14 @@ After every session that changes the codebase, update:
 2. `.kit/QUESTIONS.md` — update question status
 3. This file's Current State section
 
-## Current State (2026-03-06)
+## Current State (2026-03-11)
 
-- **Build:** GREEN — compiles clean, 0 warnings
+- **Build:** GREEN — compiles clean, 1 warning (unused `resolve_datacenter` in cloud-run)
 - **Branch:** `main`
-- **Research:** Three threads completed, all negative. Static LOB features have zero predictive power for short-term price direction on MES. See `.kit/RESEARCH_LOG.md` for details and path forward.
-- **Infrastructure:** Production-grade. BookBuilder verified, multi-instrument live pipeline tested, CPCV distributed backtest framework ready. Event export can re-derive any feature set from raw .dbn.zst.
-- **Next:** Local experiments testing event sequences, cross-instrument signal, regime conditioning, and alternative target formulations. Zero EC2 cost until local results show promise.
+- **Research:** Six threads completed (01-04, 06 negative; 05 Gate 1 passed / Gate 2 negative). Phase 1 PASSED (ppl 1.864). **Phase 2 (Gate 1.5) PASSED** — dual-head book state reconstruction: size acc 67.4% (vs 23.6% baseline), spread NM 84.4%, imb MAE 0.0665. LOBS5 pre-batch risk did NOT materialize.
+- **Literature:** Competitive landscape assessed (13 papers, 3 deep dives). CME futures MBO whitespace confirmed. TradeFM (JPMorgan, 524M params) is primary threat but equities-only. Three extractable components queued (continuous-time RoPE, interarrival time encoding, MarS-style additive conditioning). See `.kit/lit-review-lob-dl.md` and `.kit/lit-deep-dives.md`.
+- **S3 canonical data:** `s3://kenoma-labs-research/cloud-runs/mbo-grammar/` — tokens.bin (7.3 GiB), .book_state (31.1 GiB, 695M rows), .mids (10.4 GiB), .meta.json.
+- **S3 Phase 2 results:** `s3://kenoma-labs-research/runs/mbo-grammar-phase2-20260310T020658Z/results/` — best_model.pt, gate1_5_results.json.
+- **cloud-run:** RunPod backend fully functional. Self-stop still broken (pods auto-restart).
+- **Architecture:** Custom CausalBlock with `F.scaled_dot_product_attention(is_causal=True)` for FlashAttention. VOCAB_SIZE 128 (padded from 126). Checkpoint key remapping for CausalBlock.
+- **Next:** Phase 3 — directional signal check. B (pretrained+recon) vs C (random) on "next BBO change direction", 15-fold CPCV. Kill gate: B >= majority+2pp in >=60% of folds. Code: `phase3_signal_check.py`, `cloud-run-phase3.toml` in `../mbo-tokenization/research/04-mbo-grammar/`.
