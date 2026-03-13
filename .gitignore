@@ -1,1 +1,15 @@
 /target/
+
+# Claude Code config
+.claude/
+CLAUDE.md
+AGENTS.md
+
+# Data / results
+*.parquet
+*.dbn
+*.dbn.zst
+*.bin
+*.pt
+.kit/results/
+research/*/results/
