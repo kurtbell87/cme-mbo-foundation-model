@@ -1,1 +1,24 @@
 /target/
+
+# Claude
+.claude/
+**/.claude/
+CLAUDE.md
+AGENTS.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv-mps/
+
+# Data / checkpoints
+data/
+checkpoints/
+checkpoints-mps-test/
+audit_reports/
+*.parquet
+*.bin
+*.pt
+*.pth
+uv.lock
