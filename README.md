@@ -1,127 +1,272 @@
-# MBO-DL: A Foundation Model for CME Futures Microstructure
+# MBO Grammar: A Foundation Model for CME Futures Microstructure
 
-End-to-end research pipeline for CME futures microstructure: raw L3 (market-by-order) data ingestion, full limit order book reconstruction, feature engineering, strategy backtesting, live market data, and foundation model training. Rust for performance-critical infrastructure (book reconstruction, feature extraction, backtesting at ~3M events/sec), Python/PyTorch for transformer training on GPU.
+A research project investigating whether transformer pretraining on tokenized Level 3 (Market-by-Order) event sequences from CME E-mini S&P 500 futures can learn representations that encode directional information — after exhaustively ruling out hand-engineered features.
 
-**Core thesis:** Static LOB snapshots and hand-engineered features cannot predict short-term price direction in MES futures. Six systematic research threads -- spanning 112 engineered features, multiple model classes (XGBoost, logistic regression, linear probes), and 897M+ rows of tick data -- confirmed this with rigorous cross-validation. The alternative: let a transformer learn directly from tokenized MBO event sequences what patterns matter, treating the order book as a language to be modeled rather than a feature vector to be engineered.
+**Status:** Phase 2 of 3 complete. The model learns real market grammar (perplexity 1.864 vs Markov-5 baseline 1.984) and recovers full book state from raw event sequences alone (67.4% size accuracy vs 23.6% baseline). Phase 3 — the critical directional signal test — is next.
 
-## Research Program
+---
 
-### The Negative Results (Threads 01-04, 06)
+## Thesis
 
-Before building the foundation model, I exhaustively tested conventional approaches. Every thread used combinatorially purged cross-validation (CPCV, 45 folds), serial execution (one position at a time), and tradeable prices (bid/ask entry, not mid-price fiction).
+Six independent research threads demonstrated that **no combination of hand-engineered LOB features and gradient-boosted trees can predict short-term price direction on MES MBO data.** Static book snapshots, flow EMAs, sequential BBO dynamics, and cooldown sweeps all produced 0/45 positive CPCV folds. The tree-based approach on tabular microstructure features is exhaustively dead.
 
-| Thread | Approach | Result |
-|--------|----------|--------|
-| 01 | 5s bar features + XGBoost + triple barrier | Overlapping Sharpe 14.21 collapsed to **-18.26** under serial execution. 45/45 folds negative. |
-| 02 | Tick-level re-simulation of Thread 01 signals | Win rate 26.6% matches null (26.9%). Barrier sweep across 3 geometries confirms no edge. |
-| 03 | 44 LOB features (depth, imbalance, OFI, trade flow, cancel rates) + XGBoost | Gate test: all univariate signals near-null. Full CPCV: **0/45 positive folds**. Mean expectancy -$1.37/trade across 35M training rows per fold. |
-| 04 | 22 inter-episode BBO dynamics features + OFI-directed labels | Ljung-Box Q=184,922 -- massive trade autocorrelation from evaluating slow EMA signal on fast BBO-change grid. Apparent 0/45 negative folds is artifact. |
-| 06 | Cooldown sweep on Thread 04 (7 values, 0-422 events) | 45/45 folds negative at every cooldown. Confirms autocorrelation was symptom, not disease. **Exhausts XGBoost on hand-engineered MBO features.** |
+The pivot: rather than engineer features that describe what the book *looks like*, train a transformer to learn directly from raw MBO event sequences what patterns *matter*. The model learns event grammar (how orders, cancels, trades, and fills relate to each other across atomic batch boundaries) and book state (what the order book looks like at any point), both prerequisites for any directional prediction. The question is whether these learned representations encode information that transfers to direction.
 
-**Key methodological insight from Thread 04:** The evaluation grid must match the signal's information timescale. Evaluating a slow feature on a fast grid produces redundant correlated predictions, inflating trade counts and creating artificial autocorrelation regardless of downstream corrections. This is a structural problem with any EMA-smoothed signal evaluated at event frequency.
+### Why MBO sequences, not snapshots
 
-### The Foundation Model (Thread 05 -- Active)
+A limit order book snapshot is a lossy compression of the event stream that produced it. Two identical book states can have radically different microstructural histories — a stable book with occasional cancels vs. a rapidly churning book with high add/cancel ratios at the same levels. The *sequence* of events encodes participant behavior, urgency, and information arrival in ways that a snapshot cannot.
 
-#### Tokenization
+The tokenization preserves this: each MBO event becomes `[ACTION] [SIDE] [PRICE] [SIZE]`, with `[COMMIT]` tokens marking CME's atomic batch boundaries (the F_LAST flag). The transformer sees the full compositional structure of market activity.
 
-126-token factored vocabulary over raw MBO events:
-- **4 special tokens:** BOS, EOS, PAD, COMMIT (marks book update boundaries at Databento's `F_LAST`)
-- **6 action tokens:** ADD, CANCEL, MODIFY, TRADE, FILL, CLEAR
-- **3 side tokens:** BID, ASK, NONE
-- **104 value tokens:** 95 relative price bins (integer ticks from exact L3 mid, +/-50 range + FAR + NO_REF) + 9 log2-quantized size bins
+### Why this hasn't been done
 
-Each MBO event becomes ~4.88 tokens. A full year of MES 2022 (312 trading days, 809M events) produces **3.93 billion tokens** with 695M commit boundaries. Snapshot events (Databento `F_SNAPSHOT` flag) are fed to the book builder for correct state tracking but excluded from the token stream.
+Published LOB foundation models (TradeFM, LOBERT, LOBS5, MarS) operate exclusively on equities data (LOBSTER/ITCH format, US and Chinese markets, or crypto). CME futures microstructure is qualitatively different: no opening auction, different participant composition (institutional hedgers vs. retail/HFT mix), calendar spread dynamics, different fee structures. Results from equities should not be assumed to transfer.
 
-The factored encoding is a deliberate design choice at this model scale. At 8M parameters, compositionality (shared embeddings, 126 vocab) outperforms composite encoding (16K+ vocab). TradeFM's mixed-radix 16,384-token composite wins at 500M+ where the model can memorize all token semantics. MarS scaling laws (2M-1.02B params, 32B tokens) confirm our model is data-limited, not parameter-limited -- the right regime for factored tokens.
+No published foundation model exists for CME futures MBO data. This project occupies that whitespace.
 
-#### Phase Results
+---
 
-| Phase | Gate | Result |
-|-------|------|--------|
-| **Phase 0** | Tokenizer + sidecars | 3.93B tokens, .book_state (12-field post-COMMIT book vector), .mids sidecar. Streaming pipeline (<10 MiB RAM). |
-| **Phase 1** | LM perplexity < Markov-5 | **PASSED.** ppl 1.864 vs Markov-5 1.984 (6.1% improvement). 6.5M params, d=256, 8 layers, weight-tied. |
-| **Gate 2** | Frozen linear probe for direction | **NEGATIVE.** Raw one-hot beats pretrained at all horizons (K=50: 72.0% vs 71.7%). Grammar is structural, not directional. |
-| **Phase 2** | Book state reconstruction | **PASSED.** Dual-head (pre-batch + post-batch): size acc 67.4% (vs 23.6% baseline), spread non-modal 84.4%, imbalance MAE 0.0665. |
-| **Phase 3** | Directional signal from pretrained model | **NEXT.** B (pretrained+recon) vs C (random init) on next BBO change direction. 15-fold CPCV, kill gate: B >= majority+2pp in >= 60% of folds. |
+## Research Progression
 
-**Phase 2 detail:** The model reconstructs what the order book looks like from ~105 events of token context alone -- no book state input. This is novel: LOBS5 and MarS both feed book state as input. LOBS5 explicitly found that "training and validation loss drastically improves when using book data in addition to message sequences," flagging our reconstruction-as-target approach as risky. The pre-batch head (predict book state *before* processing the current batch) was the concern -- it passed comfortably (spread NM 86.5%), meaning the model carries a running book state representation across positions.
+### What doesn't work (Threads 01-04, 06)
 
-**Phase 3 is the critical test:** Does encoding meaningful book state representations translate to directional predictive power? Statistical power is not an issue: 244K independent labeled test samples per fold, SE = 0.1pp for a 2pp effect (20-sigma).
+| Thread | Approach | Result | Key insight |
+|--------|----------|--------|-------------|
+| 01 | 5s bar features, XGBoost, overlapping evaluation | Sharpe 14.2 overlapping, **-18.3 serial** | Overlapping positions inflate metrics by 99.9% |
+| 02 | Tick-level, bid/ask execution, serial | 45/45 CPCV folds negative | Mid-price entry is fiction; spread cost kills marginal edges |
+| 03 | 44 LOB features (imbalance, OFI, HHI, etc.) | **0/45 CPCV folds positive** | Static snapshots describe state, not dynamics |
+| 04 | 22 sequential BBO dynamics features | 0/45 folds (Q=184,922 autocorrelation) | Slow signals on fast grids produce correlated noise |
+| 06 | Cooldown sweep (0-422 events) on Thread 04 | **45/45 negative at all cooldowns** | Signal doesn't exist at any evaluation frequency |
 
-### Competitive Position
+These threads are not failures — they are systematic elimination. Each ruled out an entire feature class with rigorous CPCV validation (10:5 geometry, 45 folds, serial execution, 287+ days, 897M events). The infrastructure built along the way (verified order book, CPCV framework, cloud orchestration) remains in production use.
 
-A literature review of 13 papers across three waves (discriminative LOB models, MBO deep learning, foundation models) confirms **no published foundation model exists for CME futures MBO data.** All published work uses NASDAQ equities (LOBSTER/ITCH), cryptocurrency, or Chinese equities.
+### What works so far (Thread 05 — MBO Grammar)
 
-- **TradeFM** (JPMorgan, Feb 2026, 524M params): Primary threat. US equities only, add/cancel events only (no trades/fills/modify/clear), no book state reconstruction. Could extend to futures with their data access.
-- **MarS** (Microsoft/ICLR 2025): Validates decoder-only architecture and provides scaling laws. Additive book state conditioning as potential fallback.
-- **LOBS5** (Oxford, ICAIF 2023): Most architecturally relevant prior work. S5 (state-space) with simulator-in-the-loop.
-- **LOBERT** (2025): Continuous-time RoPE for irregular inter-arrival times -- queued for post-Phase 3 integration.
+**Phase 0: Tokenization.** Built a 126-token vocabulary that encodes every MBO event as a compositional sub-token sequence:
 
-Futures microstructure is qualitatively different from equities: no opening auction, different participant composition, calendar spread dynamics, different fee structures. Equity results should not be assumed to transfer.
+```
+Vocabulary (126 tokens):
+  Special:  PAD  BOS  EOS  COMMIT           (4)
+  Action:   ADD  CANCEL  MODIFY  TRADE  FILL  CLEAR    (6)
+  Side:     BID  ASK  NONE                   (3)
+  Price:    FAR_NEG  {-50..+50 ticks}  FAR_POS  NO_REF  (104)
+  Size:     0  1  2-3  4-7  8-15  16-31  32-63  64-127  128+  (9, log2-quantized)
+```
 
-## Infrastructure
+Each event becomes `[ACTION] [SIDE] [PRICE_REL] [SIZE]`, with `[COMMIT]` at CME's F_LAST boundary marking atomic batch completion. Price is relative to pre-event mid in integer ticks; size is log2-quantized. This multi-token encoding preserves compositional structure — `[ADD] [BID]` shares learned representations with `[ADD] [ASK]`, analogous to how natural language models share structure across related phrases.
 
-The pipeline is split by what each language does best. Rust handles latency-sensitive, data-heavy work: order book reconstruction, feature extraction from 809M events, tick-level backtesting with serial execution, and live market data over WebSocket. Python handles GPU training: transformer pretraining, dual-head reconstruction fine-tuning, and CPCV fold evaluation. Data flows from Rust (raw .dbn.zst -> tokenized sequences + sidecars on S3) to Python (S3 -> DataLoader -> model).
+Full-year 2022 MES dataset: 312 files, 809M events, **3.93 billion tokens**, 695M commit boundaries.
 
-### Rust Workspace
+**Phase 1: Language model gate — PASSED.** A decoder-only transformer (6.5M params, d=256, 8 layers, 8 heads) trained on next-token prediction achieves **perplexity 1.864**, beating the order-5 Markov baseline of 1.984 by 6.1%. The model learns real MBO grammar beyond n-gram statistics.
 
-| Crate | Purpose |
-|-------|---------|
-| `book-builder` | L2 order book from L3 MBO events. Sorted-Vec + FxHashMap. **99.91% verified** vs Databento MBP-10 across 54.3M comparisons. |
-| `event-features` | 42 instantaneous LOB features from committed book state |
-| `flow-features` | 48 event-count EMA flow features (OFI, trade flow, cancel rates) |
-| `seq-features` | 22 inter-episode BBO dynamics features |
-| `event-labels` | Tick-level triple-barrier simulation (multi-geometry) |
-| `backtest` | Triple-barrier backtest engine with serial execution enforcement |
-| `databento-ingest` | .dbn.zst ingestion at ~3M events/sec |
-| `rithmic-client` | Rithmic protobuf WebSocket client (live CME market data) |
-| `xgboost-ffi` | Pure Rust XGBoost JSON inference (no C FFI in hot path) |
+Per-token-class perplexity reveals what the model finds easy and hard:
+- SIDE: 1.46 (bid/ask is highly predictable from action context)
+- PRICE: 1.85 (relative tick position is learnable from order flow patterns)
+- SIZE: 1.94 (noisiest — order sizes have high entropy)
+- ACTION: 2.30 (sequence of adds, cancels, trades is moderately predictable)
 
-**Book builder internals:** Price levels use sorted `Vec<(i64, u32)>` with `binary_search_by_key` (replaced BTreeMap for cache locality). Per-order tracking via `FxHashMap<u64, OrderInfo>` where `OrderInfo` is 16 bytes (price: i64, size: u32, side: char), field-ordered to eliminate padding. Flow accumulators use `u8` bitmask for BBO change cause tracking.
+**Phase 2: Book state reconstruction — PASSED.** Added dual reconstruction heads (pre-batch and post-batch) to test whether the transformer's internal representations encode meaningful book state. The pre-batch head predicts what the order book looks like *before* a batch of events arrives — purely from the preceding ~105 events of context, with no explicit book state input.
 
-### Tools
+| Metric | Baseline | Model | Improvement |
+|--------|----------|-------|-------------|
+| Size accuracy (level 1) | 23.6% | **67.4%** | +43.8pp |
+| Spread (non-modal accuracy) | — | **84.4%** | — |
+| Imbalance MAE | 0.2273 | **0.0665** | 3.4x better |
 
-| Tool | Purpose |
-|------|---------|
-| `rithmic-live` | Multi-instrument live pipeline (Rithmic -> BookBuilder -> features). Per-instrument tokio tasks with independent book state and BBO health monitoring. |
-| `event-export` | Export any feature set from raw .dbn.zst to Parquet |
-| `event-backtest` | CPCV + serial PnL backtest with distributed fold sharding |
-| `cloud-run` | Multi-backend cloud compute orchestration (AWS EC2 + RunPod GPU). Heartbeat monitoring, idle detection, TTL enforcement, automatic termination. |
-| `book-verify` | Validate BookBuilder against Databento MBP-10 ground truth |
+The pre-batch head slightly outperforms post-batch on spread and imbalance, meaning the model carries a *running representation of book state across positions* — it doesn't just compute locally from the current batch. This contradicts the LOBS5 finding (Nagy et al., 2023) that models require explicit book state input.
 
-### Validation Infrastructure
+**Phase 3: Directional signal check — READY.** The critical test: does pretraining + book state reconstruction give the model a directional advantage?
 
-- **CPCV:** Combinatorially purged cross-validation (10 groups, 5 test = 45 folds or 6 groups, 2 test = 15 folds). Eliminates train/test leakage from autocorrelated financial data.
-- **Serial execution:** One position at a time. Overlapping evaluation inflated Sharpe from -18.26 to +14.21 in Thread 01 -- a 32x distortion.
-- **Tradeable prices:** Entry at bid (shorts) or ask (longs). Mid-price entry is a fiction that absorbs spread cost.
-- **Multi-geometry training:** Single model sees multiple (take-profit, stop-loss) pairs per evaluation point. Geometry is a feature, not a hyperparameter.
+- **Condition B:** Phase 2 pretrained checkpoint + reconstruction heads + directional head (next BBO change direction)
+- **Condition C:** Random initialization + directional head only (control)
+- **Kill gate:** B beats majority class by >= 2pp in >= 60% of 15-fold CPCV folds
+- **Statistical power:** 244K independent labeled samples per fold; SE for 2pp effect is 0.1pp (20-sigma)
+
+If Phase 3 fails, MBO sequences do not predict direction on MES. Stop.
+
+---
+
+## Architecture
+
+### Tokenizer (Rust)
+
+The tokenizer (`crates/mbo-tokenizer`) processes raw Databento `.dbn.zst` files through a verified L2 order book (`crates/book-builder`, 99.91% exact match vs Databento MBP-10 across 54.3M comparisons) and emits token sequences with aligned sidecars:
+
+- **tokens.bin** — u16 token IDs, streaming output (~7.3 GiB for full year)
+- **book_state** — 12 f32 fields at each COMMIT: BBO prices (relative to mid), 5 bid sizes, 5 ask sizes (48 bytes/row, 31.1 GiB)
+- **mids** — (commit_position, mid_price) pairs for label computation
+
+Snapshot events (Databento's `F_SNAPSHOT` flag) are fed to the BookBuilder for correct state reconstruction but produce zero tokens — they represent exchange-initiated book rebuilds, not organic market activity.
+
+### Transformer (PyTorch)
+
+```
+MBOTransformer
+  d_model=256, layers=8, heads=8, dim_ff=1024
+  VOCAB_SIZE=128 (padded from 126 for tensor core alignment)
+  Weight-tied embedding/output projection
+  Custom CausalBlock with direct F.scaled_dot_product_attention(is_causal=True)
+  ~6.5M parameters
+
+ReconHead (x2: pre-batch, post-batch)
+  10 size fields as 9-class classification (log2 buckets)
+  Spread as 11-class classification (0=crossed, 1-9=ticks, 10=wide)
+  Level-1 imbalance as regression [0, 1]
+  ~112K parameters each
+
+DirectionalHead
+  Binary classification (next BBO change: up vs down)
+  d_model -> d_model/2 -> 1, GELU activation
+```
+
+The custom `CausalBlock` was necessary because PyTorch 2.5.1's `nn.TransformerEncoder`, `nn.MultiheadAttention`, and the standard attention forward path all block FlashAttention during training when dropout > 0. Direct `F.scaled_dot_product_attention(is_causal=True)` bypasses this, yielding a 25% speedup (840s/epoch vs 1191s with `torch.compile`, which forced a float causal mask path).
+
+### Order Book (Rust)
+
+The BookBuilder (`crates/book-builder`) reconstructs L2 order books from L3 MBO events:
+
+- Price levels: sorted `Vec<(i64, u32)>` with `binary_search_by_key` (cache-friendly, replaced BTreeMap)
+- Per-order tracking: `FxHashMap<u64, OrderInfo>` (rustc-hash for fast integer hashing)
+- `OrderInfo`: 16 bytes (price i64, size u32, side char), field-ordered to eliminate padding
+- Verified against Databento MBP-10 ground truth: 99.91% exact match across 54.3M comparisons
+
+---
+
+## Workspace Layout
+
+```
+crates/
+  book-builder/       L2 order book from MBO events (sorted-Vec + FxHashMap)
+  mbo-tokenizer/      126-token vocabulary, streaming tokenization + sidecars
+  flow-features/      48 event-count EMA flow features (OFI, trade flow, cancel rates)
+  event-features/     42 instantaneous LOB features from committed state
+  event-labels/       Tick-level triple-barrier simulation (multi-geometry)
+  seq-features/       22 inter-episode BBO dynamics features
+  backtest/           Triple-barrier backtest engine
+  rithmic-client/     Rithmic protobuf WebSocket client (live CME data)
+  databento-ingest/   Databento .dbn.zst ingestion
+  xgboost-ffi/        Pure Rust XGBoost JSON inference
+  common/             Shared types
+
+tools/
+  mbo-tokenize/       CLI: .dbn.zst -> tokens.bin + sidecars
+  cloud-run/          Multi-backend cloud orchestration (EC2 + RunPod), TTL enforcement
+  rithmic-live/       Live multi-instrument pipeline (Rithmic -> BookBuilder -> features)
+  event-export/       Export features + labels to Parquet
+  event-backtest/     CPCV + serial PnL backtest with distributed fold sharding
+  book-verify/        Validate BookBuilder against Databento MBP-10
+
+research/
+  01-bar-level-cpcv/          DEAD - bar aggregation destroys signal
+  02-tick-level-serial/       DEAD - null at execution resolution
+  03-event-lob-probability/   DEAD - 0/45 CPCV folds with static LOB features
+  04-mbo-grammar/             ACTIVE - transformer pretraining on tokenized MBO events
+    model.py                  CausalBlock + MBOTransformer + ReconHead + DirectionalHead
+    train.py                  Phase 1: language model pretraining
+    train_finetune.py         Phase 2: dual-head book state reconstruction
+    phase3_signal_check.py    Phase 3: directional signal check (B vs C, 15-fold CPCV)
+    data.py                   Dataset utilities (sliding window, temporal split)
+    precompute_phase3.py      Direction target precomputation from mids sidecar
+```
+
+---
+
+## Validation Methodology
+
+All experiments use **Combinatorially Purged Cross-Validation (CPCV)** with serial execution:
+
+- **CPCV geometry:** 10 groups, 5 test groups per split = 45 folds (Threads 01-04, 06); 6 groups, 2 test = 15 folds (Phase 3)
+- **Serial execution:** One position at a time. No overlapping trades. Thread 01 showed overlapping evaluation inflates Sharpe from -18.3 to +14.2 — any backtest without serial execution is uninformative.
+- **Purging + embargo:** Training windows exclude data near test boundaries (30K token buffer in Phase 3)
+- **Tradeable prices:** All entry/exit at bid/ask, never theoretical mid-price
+- **Kill gates:** Each phase has pre-specified pass criteria. If the gate fails, the research direction is abandoned — not tweaked until it passes.
+
+---
+
+## Competitive Landscape
+
+| Model | Params | Data | Vocab | Market | Book state |
+|-------|--------|------|-------|--------|------------|
+| **This work** | **6.5M** | **3.93B tokens, 1 yr MES** | **126 (factored)** | **CME futures** | **Reconstruction from events** |
+| TradeFM (JPMorgan, 2026) | 524M | 19B tokens, 9K+ equities | 16,384 (composite) | US equities | None |
+| MarS (2024) | 2M-1.02B | 32B tokens | — | NASDAQ equities | Input (L2 snapshots) |
+| LOBS5 (Oxford, 2023) | — | — | — | NASDAQ equities | Input (required) |
+| LOBERT (2025) | — | — | — | Crypto | Continuous-time RoPE |
+
+**Key differentiators:**
+- Only project using CME futures MBO data (qualitatively different microstructure from equities)
+- Full MBO event coverage (adds, cancels, modifies, trades, fills, clears) vs. TradeFM's add/cancel only
+- Book state reconstruction as learned objective, not explicit input (novel approach — LOBS5 found explicit input was required; our Phase 2 contradicts this)
+- Factored 126-token vocabulary preserving compositional structure (appropriate at 6.5M params; TradeFM's 16K composite vocabulary requires 500M+ params)
+
+**Primary threat:** TradeFM could extend to futures markets within 6-12 months given JPMorgan's data access and compute budget. Speed matters.
+
+---
 
 ## Data
 
-- **Source:** Databento CME MBO (L3), full year 2022 MES (Micro E-mini S&P 500)
-- **Volume:** 312 trading days, 809M events, 49.2 GB raw (.dbn.zst)
-- **Tokenized:** 3.93B tokens (7.3 GiB), 695M commit boundaries, book state sidecar (31.1 GiB)
-- **Live:** Rithmic WebSocket client for real-time CME data (paper trading validated with MES + MNQ)
+**Raw:** 312 Databento `.dbn.zst` files, 49.2 GB — full year 2022 CME Micro E-mini S&P 500 (MES) MBO data. 809M events across all trading sessions.
+
+**Tokenized:**
+| Artifact | Size | Description |
+|----------|------|-------------|
+| tokens.bin | 7.3 GiB | 3.93B u16 token IDs |
+| book_state | 31.1 GiB | 695M rows x 12 f32 fields (BBO + depth 5) |
+| direction_targets.bin | 0.7 GiB | Precomputed BBO change direction labels |
+| best_model.pt | 77 MB | Phase 2 checkpoint (backbone + recon heads) |
+
+---
+
+## End-to-End Pipeline
+
+This project covers the full research-to-production cycle: raw data ingestion, order book reconstruction, feature engineering, model training, rigorous backtesting, and a live market data pipeline ready for strategy deployment.
+
+**Data processing (Rust):** Streaming ingestion of Databento `.dbn.zst` files through a verified L2 order book at ~3M events/sec. Tokenizer produces aligned token sequences and book state sidecars with <10 MiB memory footprint regardless of dataset size.
+
+**Feature engineering:** 44 instantaneous LOB features (depth profile, imbalance, spread, HHI, slope), 48 event-count EMA flow features (OFI at multiple timescales, trade flow, cancel rates), 22 inter-episode BBO dynamics features. All at committed-state (event-level) resolution, never time-aggregated.
+
+**Model training (PyTorch):** Transformer pretraining + multi-task fine-tuning on GPU. Custom FlashAttention integration (CausalBlock bypassing PyTorch 2.5.1's attention stack) was the single largest speedup — more impactful than AMP, torch.compile, or data pipeline improvements. 840s/epoch on RTX 4090.
+
+**Backtesting:** Combinatorially Purged Cross-Validation with serial execution, tick-level triple-barrier simulation, multi-geometry training, and calibration diagnostics. All entry/exit at tradeable bid/ask prices.
+
+**Live pipeline:** Multi-instrument Rithmic WebSocket client with per-instrument thread isolation, independent BookBuilder instances, BBO health monitoring, and real-time feature extraction. Tested on CME E-mini S&P 500 and Micro E-mini NASDAQ.
+
+**Cloud orchestration:** Custom `cloud-run` CLI supporting AWS EC2 (spot instances, auto-termination) and RunPod GPU pods (RTX 4090 at $0.59/hr). Heartbeat monitoring, idle detection, TTL enforcement, automatic shutdown.
+
+---
 
 ## Build
 
 ```bash
-cargo build --release          # full workspace
-cargo test -p book-builder     # run tests for a crate
-cargo run --release -p rithmic-live -- --help
+# Rust workspace (tokenizer, book builder, tools)
+~/.cargo/bin/cargo build --release
+~/.cargo/bin/cargo test -p book-builder
+~/.cargo/bin/cargo test -p mbo-tokenizer
+
+# Python (model training)
+cd research/04-mbo-grammar
+pip install -r requirements.txt
+python train.py --tokens /path/to/tokens.bin --epochs 10
 ```
 
-## Future Directions (Contingent on Phase 3)
+---
 
-If Phase 3 passes (pretrained model shows directional advantage):
-- **Interarrival time encoding:** `[TIME_DELTA]` sub-token with 16 log-scale bins. All three major foundation model papers encode timing; we currently don't.
-- **Continuous-time RoPE:** Replace discrete position index with cumulative time (LOBERT approach). Handles irregular inter-arrival times natively.
-- **Cross-instrument pretraining:** bps-normalized pricing (TradeFM approach) to enable MES + ES + NQ joint training. Futures lead/lag dynamics are a known signal source.
-- **Architecture comparison:** Controlled Transformer vs. Mamba experiment on tick-level MBO data. No published comparison exists -- publishable result on its own.
+## What's Next
 
-If Phase 3 fails:
-- Re-evaluate whether MBO grammar encodes any tradeable signal. Consider alternative target formulations (signed move magnitude, time-to-fill, liquidity withdrawal) or cross-instrument approaches.
+**If Phase 3 passes** (pretrained model shows directional advantage over random baseline):
+- Interarrival time encoding — `[TIME_DELTA]` sub-token (16 log-scale bins). All major papers encode timing; we currently don't.
+- Continuous-time RoPE (LOBERT approach) — replace discrete position index with cumulative timestamp
+- Cross-instrument pretraining — bps-normalized pricing to enable joint MES+ES+NQ training
 
-## Related Repository
+**If Phase 3 fails:**
+- MBO grammar encodes market structure but not tradeable direction on MES. Consider cross-instrument lead/lag approaches or alternative targets (signed move magnitude, time-to-fill).
 
-The MBO tokenizer (Rust), transformer training code (Python/PyTorch), and experiment configs live in a separate repository ([mbo-tokenization](https://github.com/kurtbell87/mbo-tokenization)). This repo contains the core infrastructure: book reconstruction, feature extraction, backtesting, live pipeline, and cloud orchestration.
+---
+
+## Key References
+
+- **TradeFM** — Kawawa-Beaudan et al. (JPMorgan AI, 2026). arXiv:2602.23784
+- **LOBS5** — Nagy et al. (Oxford, 2023). arXiv:2309.00638
+- **LOBERT** — arXiv:2511.12563
+- **MarS** — Hallmann et al. (2024). arXiv:2409.07486
+- **DeepLOB** — Zhang et al. (2018). arXiv:1808.03668

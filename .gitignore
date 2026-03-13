@@ -1,18 +1,31 @@
 /target/
 
-# Claude Code config
+# Claude
 .claude/
+**/.claude/
 CLAUDE.md
 AGENTS.md
 
-# Data files
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv-mps/
+
+# Data / checkpoints
+data/
+checkpoints/
+checkpoints-mps-test/
+audit_reports/
 *.parquet
 *.dbn
 *.dbn.zst
 *.bin
 *.pt
+*.pth
 *.json
 *.log
+uv.lock
 
 # Result directories (keep .md reports)
 .kit/results/**

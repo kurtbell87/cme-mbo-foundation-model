@@ -2193,11 +2193,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "markov-baseline"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "mbo-tokenizer",
+ "rustc-hash",
+]
+
+[[package]]
 name = "mbo-dl-rust"
 version = "0.1.0"
 dependencies = [
  "serde_json",
  "xgboost-ffi",
+]
+
+[[package]]
+name = "mbo-tokenize"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dbn",
+ "mbo-tokenizer",
+ "rustc-hash",
+]
+
+[[package]]
+name = "mbo-tokenizer"
+version = "0.1.0"
+dependencies = [
+ "book-builder",
+ "dbn",
+ "thiserror",
 ]
 
 [[package]]
