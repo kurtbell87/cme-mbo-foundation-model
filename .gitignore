@@ -5,11 +5,17 @@
 CLAUDE.md
 AGENTS.md
 
-# Data / results
+# Data files
 *.parquet
 *.dbn
 *.dbn.zst
 *.bin
 *.pt
-.kit/results/
-research/*/results/
+*.json
+*.log
+
+# Result directories (keep .md reports)
+.kit/results/**
+!.kit/results/**/*.md
+research/*/results/**
+!research/*/results/**/*.md
