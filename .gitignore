@@ -18,7 +18,17 @@ checkpoints/
 checkpoints-mps-test/
 audit_reports/
 *.parquet
+*.dbn
+*.dbn.zst
 *.bin
 *.pt
 *.pth
+*.json
+*.log
 uv.lock
+
+# Result directories (keep .md reports)
+.kit/results/**
+!.kit/results/**/*.md
+research/*/results/**
+!research/*/results/**/*.md
